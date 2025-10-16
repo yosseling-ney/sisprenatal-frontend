@@ -1,0 +1,441 @@
+﻿import {
+  Button,
+  Col,
+  DatePicker,
+  Form,
+  Input,
+  InputNumber,
+  Modal,
+  Radio,
+  Row,
+  Select,
+  Space,
+  Steps,
+  Typography,
+  message,
+} from "antd";
+import { useEffect, useMemo, useState } from "react";
+import dayjs, { Dayjs } from "dayjs";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  crearHistorial,
+  CrearHistorialPayload,
+} from "../../services/historial.service";
+import type { CrearPacienteDatosGenerales } from "../../services/paciente.service";
+import { pacienteQueryKey } from "../../hooks/queries/usePaciente";
+
+type IdentificaciónEtnia = "blanca" | "indigena" | "mestiza" | "negra" | "otros";
+type NivelEstudios = "ninguno" | "primaria" | "secundaria" | "universitaria";
+type EstadoCivil =
+  | "soltera"
+  | "casada"
+  | "union_estable"
+  | "divorciada"
+  | "viuda"
+  | "otro";
+
+interface IdentificaciónFormValues {
+  nombres: string;
+  apellidos: string;
+  cedula: string;
+  fecha_nacimiento?: Dayjs;
+  edad: number;
+  etnia: IdentificaciónEtnia;
+  alfabeta: boolean;
+  nivel_estudios: NivelEstudios;
+  anio_estudios: number;
+  estado_civil: EstadoCivil;
+  vive_sola: boolean;
+  domicilio: string;
+  telefono: string;
+  localidad: string;
+  establecimiento_salud: string;
+  lugar_parto: string;
+}
+
+interface HistorialWizardProps {
+  open: boolean;
+  onClose: () => void;
+  pacienteId: string;
+  pacienteDatos: CrearPacienteDatosGenerales;
+}
+
+const etniaOptions: { value: IdentificaciónEtnia; label: string }[] = [
+  { value: "blanca", label: "Blanca" },
+  { value: "indigena", label: "Indï¿½gena" },
+  { value: "mestiza", label: "Mestiza" },
+  { value: "negra", label: "Negra" },
+  { value: "otros", label: "Otros" },
+];
+
+const nivelEstudiosOptions: { value: NivelEstudios; label: string }[] = [
+  { value: "ninguno", label: "Ninguno" },
+  { value: "primaria", label: "Primaria" },
+  { value: "secundaria", label: "Secundaria" },
+  { value: "universitaria", label: "Universitaria" },
+];
+
+const estadoCivilOptions: { value: EstadoCivil; label: string }[] = [
+  { value: "soltera", label: "Soltera" },
+  { value: "casada", label: "Casada" },
+  { value: "union_estable", label: "Uniï¿½n estable" },
+  { value: "divorciada", label: "Divorciada" },
+  { value: "viuda", label: "Viuda" },
+  { value: "otro", label: "Otro" },
+];
+
+const calculateAge = (date?: Dayjs) => {
+  if (!date || !date.isValid()) {
+    return 0;
+  }
+  const today = dayjs();
+  const diff = today.diff(date, "year");
+  return diff >= 0 ? diff : 0;
+};
+
+const HistorialWizard = ({ open, onClose, pacienteId, pacienteDatos }: HistorialWizardProps) => {
+  const [form] = Form.useForm<IdentificaciónFormValues>();
+  const [currentStep, setCurrentStep] = useState(0);
+  const queryClient = useQueryClient();
+
+  const crearHistorialMutation = useMutation({
+    mutationFn: (payload: CrearHistorialPayload) => crearHistorial(payload),
+    onSuccess: () => {
+      message.success("Historial creado correctamente");
+      void queryClient.invalidateQueries({ queryKey: pacienteQueryKey(pacienteId) });
+      onClose();
+    },
+    onError: (error: unknown) => {
+      const msg = error instanceof Error ? error.message : "No se pudo guardar el historial";
+      message.error(msg);
+    },
+  });
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    form.resetFields();
+
+    const fechaNacimiento = pacienteDatos.fecha_nac
+      ? dayjs(pacienteDatos.fecha_nac)
+      : undefined;
+
+    const initialValues: Partial<IdentificaciónFormValues> = {
+      nombres: pacienteDatos.nombre ?? "",
+      apellidos: pacienteDatos.apellido ?? "",
+      cedula: pacienteDatos.numero_Identificación ?? "",
+      fecha_nacimiento: fechaNacimiento?.isValid() ? fechaNacimiento : undefined,
+      edad: calculateAge(fechaNacimiento),
+      domicilio: pacienteDatos.direccion ?? "",
+      telefono: pacienteDatos.telefono ?? "",
+      localidad: pacienteDatos.bairro ?? "",
+      establecimiento_salud: "",
+      lugar_parto: "",
+      etnia: "mestiza",
+      alfabeta: true,
+      nivel_estudios: "primaria",
+      anio_estudios: 0,
+      estado_civil: "soltera",
+      vive_sola: false,
+    };
+
+    form.setFieldsValue(initialValues as IdentificaciónFormValues);
+    setCurrentStep(0);
+  }, [open, pacienteDatos, form]);
+
+  const steps = useMemo(
+    () => [
+      { key: "Identificación", title: "Identificación" },
+      { key: "antecedentes", title: "Antecedentes", disabled: true },
+      { key: "gestacion", title: "Gestación actual", disabled: true },
+      { key: "parto", title: "Parto/aborto", disabled: true },
+      { key: "Patologías", title: "Patologías", disabled: true },
+      { key: "recien_nacido", title: "Recién nacido", disabled: true },
+      { key: "puerperio", title: "Puerperio", disabled: true },
+      { key: "egresos", title: "Egresos", disabled: true },
+      { key: "Anticoncepción", title: "Anticoncepción", disabled: true },
+    ],
+    []
+  );
+
+  const handlePrev = () => {
+    setCurrentStep((prev) => Math.max(prev - 1, 0));
+  };
+
+  const buildIdentificaciónPayload = (values: IdentificaciónFormValues) => ({
+    nombres: values.nombres.trim(),
+    apellidos: values.apellidos.trim(),
+    cedula: values.cedula.trim(),
+    fecha_nacimiento: values.fecha_nacimiento?.format("YYYY-MM-DD") ?? "",
+    edad: Number(values.edad ?? 0),
+    etnia: values.etnia,
+    alfabeta: Boolean(values.alfabeta),
+    nivel_estudios: values.nivel_estudios,
+    anio_estudios: Number(values.anio_estudios ?? 0),
+    estado_civil: values.estado_civil,
+    vive_sola: Boolean(values.vive_sola),
+    domicilio: values.domicilio.trim(),
+    telefono: values.telefono.trim(),
+    localidad: values.localidad.trim(),
+    establecimiento_salud: values.establecimiento_salud.trim(),
+    lugar_parto: values.lugar_parto.trim(),
+    paciente_id: pacienteId,
+  });
+
+  const handleFinish = async () => {
+    try {
+      const values = await form.validateFields();
+      if (!values.fecha_nacimiento) {
+        message.error("Selecciona la fecha de nacimiento");
+        return;
+      }
+
+      const payload: CrearHistorialPayload = {
+        datos: { paciente_id: pacienteId },
+        Identificación: buildIdentificaciónPayload(values),
+      };
+
+      await crearHistorialMutation.mutateAsync(payload);
+    } catch (error) {
+      // Los errores de validaciï¿½n se muestran en el formulario
+      if (error instanceof Error && error.message) {
+        message.error(error.message);
+      }
+    }
+  };
+
+  return (
+    <Modal
+      open={open}
+      onCancel={onClose}
+      destroyOnClose
+      width={960}
+      footer={null}
+      title={null}
+    >
+      <Typography.Title level={4} style={{ marginTop: 0 }}>
+        Historial clï¿½nico perinatal
+      </Typography.Title>
+      <Typography.Paragraph type="secondary" style={{ marginBottom: 24 }}>
+        Completa los segmentos para registrar el historial. De momento iniciamos con el bloque de Identificación.
+      </Typography.Paragraph>
+
+      <Steps
+        size="small"
+        current={currentStep}
+        items={steps.map((step, index) => ({
+          key: step.key,
+          title: step.title,
+          disabled: step.disabled,
+          status:
+            index < currentStep ? "finish" : index === currentStep ? "process" : "wait",
+        }))}
+        style={{ marginBottom: 32 }}
+      />
+
+      {currentStep === 0 ? (
+        <Form<IdentificaciónFormValues>
+          form={form}
+          layout="vertical"
+          onValuesChange={(changed) => {
+            if (changed.fecha_nacimiento) {
+              const fecha = changed.fecha_nacimiento as Dayjs;
+              form.setFieldValue("edad", calculateAge(fecha));
+            }
+          }}
+        >
+          <Row gutter={16}>
+            <Col xs={24} md={12}>
+              <Form.Item
+                label="Nombres"
+                name="nombres"
+                rules={[{ required: true, message: "Ingresa los nombres" }]}
+              >
+                <Input placeholder="Segï¿½n documento" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item
+                label="Apellidos"
+                name="apellidos"
+                rules={[{ required: true, message: "Ingresa los apellidos" }]}
+              >
+                <Input placeholder="Segï¿½n documento" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col xs={24} md={10}>
+              <Form.Item
+                label="Nï¿½mero de identidad"
+                name="cedula"
+                rules={[{ required: true, message: "Ingresa la cï¿½dula" }]}
+              >
+                <Input placeholder="Ej: 001-010101-0000A" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={8}>
+              <Form.Item
+                label="Fecha de nacimiento"
+                name="fecha_nacimiento"
+                rules={[{ required: true, message: "Selecciona la fecha" }]}
+              >
+                <DatePicker style={{ width: "100%" }} format="YYYY-MM-DD" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={6}>
+              <Form.Item
+                label="Edad"
+                name="edad"
+                rules={[{ required: true, message: "Indica la edad" }]}
+              >
+                <InputNumber min={0} max={120} style={{ width: "100%" }} />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col xs={24} md={8}>
+              <Form.Item
+                label="Etnia"
+                name="etnia"
+                rules={[{ required: true, message: "Selecciona la etnia" }]}
+              >
+                <Select options={etniaOptions} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={8}>
+              <Form.Item label="Alfabeta" name="alfabeta">
+                <Radio.Group>
+                  <Radio value>Si</Radio>
+                  <Radio value={false}>No</Radio>
+                </Radio.Group>
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={8}>
+              <Form.Item
+                label="Nivel de estudios"
+                name="nivel_estudios"
+                rules={[{ required: true, message: "Selecciona el nivel" }]}
+              >
+                <Select options={nivelEstudiosOptions} />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col xs={24} md={8}>
+              <Form.Item
+                label="Aï¿½os en el mayor nivel"
+                name="anio_estudios"
+                rules={[{ required: true, message: "Indica los aï¿½os" }]}
+              >
+                <InputNumber min={0} max={30} style={{ width: "100%" }} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={8}>
+              <Form.Item
+                label="Estado civil"
+                name="estado_civil"
+                rules={[{ required: true, message: "Selecciona el estado civil" }]}
+              >
+                <Select options={estadoCivilOptions} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={8}>
+              <Form.Item label="Vive sola" name="vive_sola">
+                <Radio.Group>
+                  <Radio value>Si</Radio>
+                  <Radio value={false}>No</Radio>
+                </Radio.Group>
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col xs={24} md={12}>
+              <Form.Item
+                label="Domicilio"
+                name="domicilio"
+                rules={[{ required: true, message: "Ingresa el domicilio" }]}
+              >
+                <Input.TextArea rows={2} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item
+                label="Localidad"
+                name="localidad"
+                rules={[{ required: true, message: "Ingresa la localidad" }]}
+              >
+                <Input placeholder="Ciudad / municipio" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col xs={24} md={12}>
+              <Form.Item
+                label="Telï¿½fono"
+                name="telefono"
+                rules={[{ required: true, message: "Ingresa el telï¿½fono" }]}
+              >
+                <Input placeholder="Nï¿½mero de contacto" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={6}>
+              <Form.Item
+                label="Establecimiento salud"
+                name="establecimiento_salud"
+                rules={[{ required: true, message: "Ingresa el establecimiento" }]}
+              >
+                <Input placeholder="Nombre o cï¿½digo" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={6}>
+              <Form.Item
+                label="Lugar parto/aborto"
+                name="lugar_parto"
+                rules={[{ required: true, message: "Ingresa el lugar" }]}
+              >
+                <Input placeholder="Nombre o cï¿½digo" />
+              </Form.Item>
+            </Col>
+          </Row>
+        </Form>
+      ) : (
+        <div style={{ padding: 48, textAlign: "center" }}>
+          <Typography.Text type="secondary">
+            El segmento seleccionado estarï¿½ disponible prï¿½ximamente.
+          </Typography.Text>
+        </div>
+      )}
+
+      <Space style={{ width: "100%", marginTop: 32, justifyContent: "space-between" }}>
+        <Button onClick={handlePrev} disabled={currentStep === 0}>
+          Anterior
+        </Button>
+        <Space>
+          <Button onClick={onClose} disabled={crearHistorialMutation.isPending}>
+            Cancelar
+          </Button>
+          <Button
+            type="primary"
+            onClick={handleFinish}
+            loading={crearHistorialMutation.isPending}
+          >
+            Guardar historial
+          </Button>
+        </Space>
+      </Space>
+    </Modal>
+  );
+};
+
+export default HistorialWizard;
+
+
+
