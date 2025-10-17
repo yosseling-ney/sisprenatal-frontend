@@ -20,7 +20,7 @@ import {
   message,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   useCreateUsuario,
 } from "../hooks/queries/usuarios/useCreateUsuario";
@@ -111,8 +111,9 @@ const UsuariosPage = () => {
   }, [data, searchTerm]);
 
   const handleOpenCreate = () => {
+    // Cambiamos a modo creación y abrimos el modal.
+    // El reseteo del formulario se hará en un efecto cuando el modal esté abierto y no haya editingUser.
     setEditingUser(null);
-    form.resetFields();
     setIsModalOpen(true);
   };
 
@@ -122,6 +123,14 @@ const UsuariosPage = () => {
     setEditingUser(usuario);
     setIsModalOpen(true);
   };
+
+  // Asegura que al abrir en modo creación el formulario esté limpio
+  useEffect(() => {
+    if (isModalOpen && !editingUser) {
+      // Ejecutar después de que el Form reciba initialValues de creación
+      Promise.resolve().then(() => form.resetFields());
+    }
+  }, [isModalOpen, editingUser, form]);
 
   const handleDelete = async (usuario: Usuario) => {
     try {
@@ -288,9 +297,11 @@ const UsuariosPage = () => {
         destroyOnClose
       >
         <Form<CreateUsuarioPayload>
+          key={editingUser ? editingUser._id : "create"}
           layout="vertical"
           form={form}
           preserve={false}
+          autoComplete="off"
           initialValues={
             editingUser
               ? {
@@ -302,7 +313,7 @@ const UsuariosPage = () => {
                   password: "",
                   rol: editingUser.rol,
                 }
-              : undefined
+              : {}
           }
         >
           <Form.Item
@@ -327,7 +338,7 @@ const UsuariosPage = () => {
               { type: "email", message: "Ingresa un correo válido" },
             ]}
           >
-            <Input placeholder="correo@ejemplo.com" />
+            <Input placeholder="correo@ejemplo.com" autoComplete="off" />
           </Form.Item>
           <Form.Item label="Teléfono" name="telefono">
             <Input placeholder="Número de teléfono" />
@@ -337,7 +348,7 @@ const UsuariosPage = () => {
             name="username"
             rules={editingUser ? [] : [{ required: true, message: "Ingresa el nombre de usuario" }]}
           >
-            <Input placeholder="usuario" />
+            <Input placeholder="usuario" autoComplete="off" />
           </Form.Item>
           <Form.Item
             label="Contraseña"
@@ -351,7 +362,10 @@ const UsuariosPage = () => {
                   ]
             }
           >
-            <Input.Password placeholder={editingUser ? "Deja en blanco para mantener" : "Contraseña"} />
+            <Input.Password
+              placeholder={editingUser ? "Deja en blanco para mantener" : "Contraseña"}
+              autoComplete="new-password"
+            />
           </Form.Item>
           <Form.Item
             label="Rol"
