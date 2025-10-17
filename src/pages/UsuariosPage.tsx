@@ -1,4 +1,4 @@
-import {
+﻿import {
   DeleteOutlined,
   EditOutlined,
   PlusOutlined,
@@ -20,7 +20,7 @@ import {
   message,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   useCreateUsuario,
 } from "../hooks/queries/usuarios/useCreateUsuario";
@@ -33,6 +33,7 @@ import {
 import {
   useUsuarios,
 } from "../hooks/queries/usuarios/useUsuarios";
+import { useUsuario } from "../hooks/queries/usuarios/useUsuario";
 import type {
   CreateUsuarioPayload,
   UpdateUsuarioPayload,
@@ -117,18 +118,32 @@ const UsuariosPage = () => {
   };
 
   const handleEdit = (usuario: Usuario) => {
+    // Abrir modal y luego cargar datos actualizados desde el backend
     setEditingUser(usuario);
-    form.setFieldsValue({
-      nombre: usuario.nombre,
-      apellido: usuario.apellido,
-      correo: usuario.correo,
-      telefono: usuario.telefono,
-      username: usuario.username,
-      password: "",
-      rol: usuario.rol,
-    });
     setIsModalOpen(true);
   };
+
+  // Al abrir edición, obtener datos actuales del usuario desde la API
+  const { data: fetchedUser, isFetching: isFetchingUser } = useUsuario(
+    editingUser?._id ?? "",
+    { enabled: !!editingUser?._id, staleTime: 0 }
+  );
+
+  useEffect(() => {
+    if (fetchedUser) {
+      // Sincronizar formulario con los datos más recientes del backend
+      setEditingUser(fetchedUser);
+      form.setFieldsValue({
+        nombre: fetchedUser.nombre,
+        apellido: fetchedUser.apellido,
+        correo: fetchedUser.correo,
+        telefono: fetchedUser.telefono,
+        username: fetchedUser.username,
+        password: "",
+        rol: fetchedUser.rol,
+      });
+    }
+  }, [fetchedUser, form]);
 
   const handleDelete = async (usuario: Usuario) => {
     try {
@@ -143,17 +158,42 @@ const UsuariosPage = () => {
       const values = await form.validateFields();
 
       if (editingUser) {
-        const { password, ...rest } = values;
-        const payload: UpdateUsuarioPayload = { ...rest };
-        if (password) {
-          payload.password = password;
+        // Construir payload parcial solo con cambios y no vacíos
+        const payload: UpdateUsuarioPayload = {};
+        const fields: (keyof UpdateUsuarioPayload)[] = [
+          "nombre",
+          "apellido",
+          "correo",
+          "telefono",
+          "username",
+          "rol",
+        ];
+
+        for (const key of fields) {
+          const newVal = (values as any)[key];
+          const oldVal = (editingUser as any)[key];
+          const isEmpty = newVal === undefined || newVal === null || newVal === "";
+          if (!isEmpty && newVal !== oldVal) {
+            (payload as any)[key] = newVal;
+          }
         }
+
+        // Solo enviar password si se ingresó
+        if (values.password && values.password.trim().length > 0) {
+          payload.password = values.password.trim();
+        }
+
+        if (Object.keys(payload).length === 0) {
+          message.info("No hay cambios para actualizar");
+          return;
+        }
+
         await updateMutation.mutateAsync({ id: editingUser._id, payload });
       } else {
         await createMutation.mutateAsync(values);
       }
     } catch (error) {
-      // Ant Design ya muestra los errores de validaci�n del formulario
+      // Ant Design ya muestra los errores de validación del formulario
       console.error(error);
     }
   };
@@ -200,7 +240,7 @@ const UsuariosPage = () => {
             Editar
           </Button>
           <Popconfirm
-            title="�Eliminar usuario?"
+            title="¿Eliminar usuario?"
             description="Esta accion no se puede deshacer"
             onConfirm={() => handleDelete(record)}
             okText="Eliminar"
@@ -271,31 +311,43 @@ const UsuariosPage = () => {
         }}
         onOk={handleModalSubmit}
         okText={editingUser ? "Actualizar" : "Crear"}
-        confirmLoading={createMutation.isPending || updateMutation.isPending}
+        confirmLoading={createMutation.isPending || updateMutation.isPending || isFetchingUser}
         destroyOnClose
       >
         <Form<CreateUsuarioPayload> layout="vertical" form={form} preserve={false}>
           <Form.Item
             label="Nombre"
             name="nombre"
-            rules={[{ required: true, message: "Ingresa el nombre" }]}
+            rules={
+              editingUser
+                ? []
+                : [{ required: true, message: "Ingresa el nombre" }]
+            }
           >
             <Input placeholder="Nombre" />
           </Form.Item>
           <Form.Item
             label="Apellido"
             name="apellido"
-            rules={[{ required: true, message: "Ingresa el apellido" }]}
+            rules={
+              editingUser
+                ? []
+                : [{ required: true, message: "Ingresa el apellido" }]
+            }
           >
             <Input placeholder="Apellido" />
           </Form.Item>
           <Form.Item
             label="Correo"
             name="correo"
-            rules={[
-              { required: true, message: "Ingresa el correo" },
-              { type: "email", message: "Ingresa un correo valido" },
-            ]}
+            rules={
+              editingUser
+                ? [{ type: "email", message: "Ingresa un correo valido" }]
+                : [
+                    { required: true, message: "Ingresa el correo" },
+                    { type: "email", message: "Ingresa un correo valido" },
+                  ]
+            }
           >
             <Input placeholder="correo@ejemplo.com" />
           </Form.Item>
@@ -305,28 +357,36 @@ const UsuariosPage = () => {
           <Form.Item
             label="Nombre de usuario"
             name="username"
-            rules={[{ required: true, message: "Ingresa el nombre de usuario" }]}
+            rules={
+              editingUser
+                ? []
+                : [{ required: true, message: "Ingresa el nombre de usuario" }]
+            }
           >
             <Input placeholder="usuario" />
           </Form.Item>
           <Form.Item
-            label="Contrase�a"
+            label="Contraseña"
             name="password"
             rules={
               editingUser
                 ? [{ min: 6, message: "Debe tener al menos 6 caracteres" }]
                 : [
-                    { required: true, message: "Ingresa una contrase�a" },
+                    { required: true, message: "Ingresa una contraseña" },
                     { min: 6, message: "Debe tener al menos 6 caracteres" },
                   ]
             }
           >
-            <Input.Password placeholder={editingUser ? "Deja en blanco para mantener" : "Contrase�a"} />
+            <Input.Password placeholder={editingUser ? "Deja en blanco para mantener" : "Contraseña"} />
           </Form.Item>
           <Form.Item
             label="Rol"
             name="rol"
-            rules={[{ required: true, message: "Selecciona un rol" }]}
+            rules={
+              editingUser
+                ? []
+                : [{ required: true, message: "Selecciona un rol" }]
+            }
           >
             <Select options={ROLE_OPTIONS} placeholder="Selecciona el rol" />
           </Form.Item>

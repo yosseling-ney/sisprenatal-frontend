@@ -234,8 +234,14 @@ const RegisterPacientePage = () => {
       message.error("Telefono invalido (8-15 digitos, +, -, espacio)");
       return;
     }
-    if (values.municipio_codigo)
-      datosGenerales.municipio_codigo = (values.municipio_codigo || "").toString().trim();
+    // Normalizar municipio_codigo (solo dígitos) y omitir si queda vacío
+    if (values.municipio_codigo !== undefined && values.municipio_codigo !== null) {
+      const mcRaw = `${values.municipio_codigo}`.trim();
+      if (mcRaw) {
+        const mcDigits = mcRaw.replace(/\D+/g, "");
+        if (mcDigits) datosGenerales.municipio_codigo = mcDigits;
+      }
+    }
     if (values.sexo) datosGenerales.sexo = values.sexo;
     const contacto = values.contacto_emergencia;
     if (contacto?.nombre && contacto.telefono) {
@@ -244,8 +250,12 @@ const RegisterPacientePage = () => {
         telefono: (contacto.telefono || "").trim(),
       };
     }
+    // Omitir claves opcionales vacías del payload
+    const cleanedDatosGenerales = Object.fromEntries(
+      Object.entries(datosGenerales).filter(([k, v]) => v !== undefined && v !== null && v !== "")
+    ) as CrearPacienteDatosGenerales;
     try {
-      await crearMutation.mutateAsync({ datos_generales: datosGenerales });
+      await crearMutation.mutateAsync({ datos_generales: cleanedDatosGenerales });
     } catch {}
   };
 

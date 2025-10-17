@@ -94,7 +94,12 @@ export const createUsuario = async (payload: CreateUsuarioPayload) => {
 };
 
 export const updateUsuario = async ({ id, payload }: { id: string; payload: UpdateUsuarioPayload }) => {
-  const { data } = await http.put<{ mensaje: string }>(`${USUARIOS_ROUTE}/${id}`, payload);
+  // Usar PATCH para actualizaciones parciales y filtrar vacíos/null.
+  const cleaned = Object.fromEntries(
+    Object.entries(payload).filter(([, v]) => v !== undefined && v !== null && !(typeof v === "string" && v.trim() === ""))
+  ) as UpdateUsuarioPayload;
+
+  const { data } = await http.patch<{ mensaje: string }>(`${USUARIOS_ROUTE}/${id}`, cleaned);
   return data;
 };
 
