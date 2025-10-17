@@ -112,7 +112,7 @@ const AppointmentsPage = () => {
   // ---- Item de cita (resuelve nombre de paciente en background)
   const AppointmentItemCard = ({ cita, showDate }: { cita: CitaItem; showDate?: boolean }) => {
     const pacId = cita.paciente_id || undefined;
-    const { data } = usePaciente(pacId, { enabled: !!pacId }); // requiere hook actualizado (Omit queryKey/queryFn)
+    const { data } = usePaciente(pacId ?? "", { enabled: !!pacId }); // asegura string cuando falta
     const pacName = data ? `${data.paciente.nombre} ${data.paciente.apellido}`.trim() : null;
 
     const when = showDate

@@ -1,14 +1,16 @@
-import { Alert, Button, Card, Collapse, Empty, Form, Input, Space, Spin, Typography } from "antd";
+ï»¿import { Alert, Button, Card, Collapse, Empty, Form, Input, Space, Spin, Typography } from "antd";
 import { useState } from "react";
 import Can from "../components/auth/Can";
 import { PERMISSIONS } from "../config/permissions";
 import { crearHistorial } from "../services/historial.service";
-import { usePaciente } from "../hooks/queries/usePaciente";
+import { usePaciente, pacienteQueryKey } from "../hooks/queries/usePaciente";
+import { useQueryClient } from "@tanstack/react-query";
 
-const SECTION_LABELS: Record<string, string> = {
+const SECTION_LABELS = {
   paciente: "Paciente",
   historial: "Historial reciente",
-};
+} as const;
+type SectionKey = keyof typeof SECTION_LABELS;
 
 const INITIAL_PAYLOAD = `{
   "datos": {
@@ -27,6 +29,7 @@ const INITIAL_PAYLOAD = `{
 }`;
 
 const PacientePage = () => {
+  const queryClient = useQueryClient();
   const [pacienteId, setPacienteId] = useState("");
   const [payloadPreview, setPayloadPreview] = useState<string>(INITIAL_PAYLOAD);
 
@@ -38,6 +41,11 @@ const PacientePage = () => {
   } = usePaciente(pacienteId, {
     enabled: false,
     retry: false,
+    onError: () => {
+      if (pacienteId) {
+        void queryClient.removeQueries({ queryKey: pacienteQueryKey(pacienteId) });
+      }
+    },
   });
 
   const handleBuscar = () => {
@@ -57,7 +65,7 @@ const PacientePage = () => {
     }
   };
 
-  const detalle = data
+  const detalle: Array<[SectionKey, unknown]> = data
     ? [
         ["paciente", data.paciente],
         ["historial", data.historial],
@@ -97,11 +105,11 @@ const PacientePage = () => {
         )}
       </Card>
 
-      <Can permission={PERMISSIONS.PACIENTE_CREATE}>
+      <Can permission={PERMISSIONS.HISTORIA_CLINICA_EDIT}>
         <Card title="Crear historial (demo)">
           <Typography.Paragraph>
-            Ajusta el JSON según los bloques requeridos por la API y presiona
-            "Crear". La respuesta devolverá los identificadores generados.
+            Ajusta el JSON segÃºn los bloques requeridos por la API y presiona
+            "Crear". La respuesta devolverÃ¡ los identificadores generados.
           </Typography.Paragraph>
           <Form layout="vertical" onFinish={handleCrearDemo}>
             <Form.Item label="Payload JSON" required>
@@ -120,11 +128,11 @@ const PacientePage = () => {
 
       <Card title="Detalle">
         {detalle.length === 0 ? (
-          <Empty description="Busca un paciente para ver su información" />
+          <Empty description="Busca un paciente para ver su informaciÃ³n" />
         ) : (
           <Collapse>
             {detalle.map(([key, value]) => (
-              <Collapse.Panel header={SECTION_LABELS[key] ?? key} key={key}>
+              <Collapse.Panel header={SECTION_LABELS[key]} key={key}>
                 <pre style={{ whiteSpace: "pre-wrap" }}>
                   {JSON.stringify(value ?? {}, null, 2)}
                 </pre>

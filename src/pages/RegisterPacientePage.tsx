@@ -116,6 +116,22 @@ const RegisterPacientePage = () => {
       setPacienteEncontrado(null);
       if (error.response?.status === 404) {
         setNoEncontrado(true);
+        // Limpiar campos para permitir escribir un nuevo paciente
+        try {
+          form.setFieldsValue({
+            nombre: undefined,
+            apellido: undefined,
+            fecha_nac: undefined,
+            telefono: undefined,
+            direccion: undefined,
+            bairro: undefined,
+            gesta_actual: 1,
+            codigo_expediente: undefined,
+            contacto_emergencia: undefined,
+            municipio_codigo: undefined,
+            sexo: undefined,
+          });
+        } catch {}
         message.info("No se encontró un paciente con esa identificación");
         return;
       }
@@ -279,6 +295,17 @@ const RegisterPacientePage = () => {
     setIsWizardOpen(true);
   };
 
+  const handleCancelar = () => {
+    try {
+      form.resetFields();
+    } catch {}
+    setPacienteEncontrado(null);
+    setPacienteCreado(null);
+    setNoEncontrado(false);
+    setIsWizardOpen(false);
+    message.info("Operación cancelada");
+  };
+
   return (
     <>
       <Space direction="vertical" size={24} style={{ width: "100%" }}>
@@ -347,7 +374,7 @@ const RegisterPacientePage = () => {
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={8}>
-                  <Form.Item label="Gesta actual" name="gesta_actual" hidden={estado === "initial"} rules={[{ required: true, message: "Indica la gesta actual" }]}>
+                  <Form.Item label="Gesta actual" name="gesta_actual" rules={[{ required: true, message: "Indica la gesta actual" }]}>
                     <InputNumber min={1} style={{ width: "100%" }} />
                   </Form.Item>
                 </Col>
@@ -434,9 +461,20 @@ const RegisterPacientePage = () => {
             </Row>
 
             <Space style={{ width: "100%", justifyContent: "space-between" }}>
-              <Button onClick={() => form.resetFields()} type="default">
-                Limpiar formulario
-              </Button>
+              <Space>
+                <Button
+                  danger
+                  onClick={handleCancelar}
+                  disabled={
+                    buscarMutation.isPending || crearMutation.isPending || actualizarMutation.isPending
+                  }
+                >
+                  Cancelar
+                </Button>
+                <Button onClick={() => form.resetFields()} type="default" disabled={crearMutation.isPending || actualizarMutation.isPending}>
+                  Limpiar formulario
+                </Button>
+              </Space>
               <Space>
                 <Button type={pacienteParaWizard ? "primary" : "default"} disabled={!pacienteParaWizard} onClick={handleOpenWizard}>
                   Historial médico
