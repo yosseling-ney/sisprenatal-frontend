@@ -118,19 +118,21 @@ export interface ActualizarPacientePayload {
 }
 
 export const actualizarPaciente = async (payload: ActualizarPacientePayload) => {
+  const { paciente_id, ...rest } = payload;
   try {
+    // Preferir ruta moderna con ID en path
     const { data } = await http.put<ApiResponse<Paciente>>(
-      `${PACIENTES_ROUTE}/update`,
-      payload
+      `${PACIENTES_ROUTE}/${paciente_id}`,
+      rest
     );
     return handleResponse(data);
   } catch (err: any) {
     const status = err?.response?.status;
+    // Si no existe o método no permitido, usar ruta legacy
     if (status === 405 || status === 404) {
-      const { paciente_id, ...rest } = payload;
       const { data } = await http.put<ApiResponse<Paciente>>(
-        `${PACIENTES_ROUTE}/${paciente_id}`,
-        rest
+        `${PACIENTES_ROUTE}/update`,
+        payload
       );
       return handleResponse(data);
     }

@@ -94,7 +94,8 @@ export const createUsuario = async (payload: CreateUsuarioPayload) => {
 };
 
 export const updateUsuario = async ({ id, payload }: { id: string; payload: UpdateUsuarioPayload }) => {
-  const { data } = await http.put<{ mensaje: string }>(`${USUARIOS_ROUTE}/${id}`, payload);
+  // Partial update via PATCH. Only send modified fields from caller.
+  const { data } = await http.patch<{ mensaje: string }>(`${USUARIOS_ROUTE}/${id}`, payload);
   return data;
 };
 

@@ -14,7 +14,7 @@ import {
   message,
 } from "antd";
 import { useMutation } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import dayjs from "dayjs";
 import type { AxiosError } from "axios";
 import HistorialWizard from "../components/historial/HistorialWizard";
@@ -47,6 +47,16 @@ interface PacienteFormValues {
   codigo_expediente?: string;
 }
 
+// Normaliza y protege textos antes de mostrarlos en mensajes UI
+const normalizeSafe = (value: unknown): string => {
+  const raw = typeof value === "string" ? value : String(value ?? "");
+  const nk = raw.normalize("NFKC");
+  const noCtrl = nk.replace(/[\u0000-\u001F\u007F]/g, "");
+  const collapsed = noCtrl.replace(/\s+/g, " ").trim();
+  const escaped = collapsed.replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]!));
+  return escaped;
+};
+
 interface PacienteCreadoState {
   response: CrearPacienteResult;
   datos: CrearPacienteDatosGenerales;
@@ -61,7 +71,6 @@ const tipoIdentificacionOptions: { value: TipoIdentificacion; label: string }[] 
 
 const sexoOptions = [
   { value: "F", label: "Femenino" },
-  { value: "M", label: "Masculino" },
 ];
 
 const formLayout = { labelCol: { span: 24 }, wrapperCol: { span: 24 } } as const;
@@ -85,6 +94,7 @@ const RegisterPacientePage = () => {
   const [pacienteCreado, setPacienteCreado] = useState<PacienteCreadoState | null>(null);
   const [noEncontrado, setNoEncontrado] = useState(false);
   const [isWizardOpen, setIsWizardOpen] = useState(false);
+  const [updatedTick, setUpdatedTick] = useState<number | null>(null);
 
   const buscarMutation = useMutation({
     mutationFn: async (params: { tipo: TipoIdentificacion; numero: string }) =>
@@ -129,7 +139,7 @@ const RegisterPacientePage = () => {
             codigo_expediente: undefined,
             contacto_emergencia: undefined,
             municipio_codigo: undefined,
-            sexo: undefined,
+            sexo: "F",
           });
         } catch {}
         message.info("No se encontró un paciente con esa identificación");
@@ -171,15 +181,31 @@ const RegisterPacientePage = () => {
   const actualizarMutation = useMutation({
     mutationFn: actualizarPaciente,
     onSuccess: (pacienteActualizado) => {
-      setPacienteEncontrado(pacienteActualizado);
+      setPacienteEncontrado((prev) =>
+        ({ ...(prev as any), ...(pacienteActualizado as any) })
+      );
       try { form.setFieldValue("gesta_actual", pacienteActualizado.gesta_actual); } catch {}
-      message.success("Paciente actualizado");
+      // Mensaje claro para el usuario al actualizar
+      message.success("Los datos del paciente están actualizados");
+      setUpdatedTick(Date.now());
     },
     onError: (error: AxiosError<{ ok: boolean; error?: string }>) => {
-      const msg = error.response?.data?.error ?? error.message;
-      message.error(msg || "No se pudo actualizar el paciente");
+      const status = error.response?.status;
+      const raw = error.response?.data?.error ?? error.message;
+      const msg = normalizeSafe(raw ?? "No se pudo actualizar el paciente");
+      if (status === 422) {
+        message.warning(msg);
+      } else {
+        message.error(msg);
+      }
     },
   });
+
+  useEffect(() => {
+    if (!updatedTick) return;
+    const t = setTimeout(() => setUpdatedTick(null), 3000);
+    return () => clearTimeout(t);
+  }, [updatedTick]);
 
   const handleActualizarPaciente = async () => {
     if (!pacienteEncontrado) {
@@ -286,6 +312,7 @@ const RegisterPacientePage = () => {
 
   const estado = pacienteEncontrado ? "found" : noEncontrado ? "not_found" : "initial";
   const showGeneralFieldsNotFound = estado === "not_found";
+  const showPostSearch = estado !== "initial"; // muestra campos adicionales solo tras buscar
 
   const handleOpenWizard = () => {
     if (!pacienteParaWizard) {
@@ -321,13 +348,14 @@ const RegisterPacientePage = () => {
             {...formLayout}
             form={form}
             layout="vertical"
+            autoComplete="off"
             initialValues={{ sexo: "F", gesta_actual: 1 }}
             onFinish={handleSubmit}
           >
             <Row gutter={16}>
               <Col xs={24} md={8}>
                 <Form.Item label="Tipo de identificación" name="tipo_identificacion" rules={[{ required: true, message: "Selecciona un tipo" }]}>
-                  <Select options={tipoIdentificacionOptions} placeholder="Selecciona" />
+                  <Select options={tipoIdentificacionOptions} placeholder="Selecciona" disabled={estado === "found"} />
                 </Form.Item>
               </Col>
               <Col xs={24} md={10}>
@@ -351,7 +379,7 @@ const RegisterPacientePage = () => {
                     }),
                   ]}
                 >
-                  <Input placeholder="Formato según tipo" />
+                  <Input placeholder="Formato según tipo" disabled={estado === "found"} />
                 </Form.Item>
               </Col>
               <Col xs={24} md={6} style={{ display: "flex", alignItems: "flex-end" }}>
@@ -362,37 +390,58 @@ const RegisterPacientePage = () => {
             </Row>
 
             {estado === "found" && (
+              <>
+                <Row gutter={16}>
+                  <Col xs={24} md={8}>
+                    <Form.Item label="Código de expediente" name="codigo_expediente">
+                      <Input disabled />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={8}>
+                    <Form.Item label="Teléfono" name="telefono" rules={[{ required: true, message: "Ingresa el teléfono" }]}>
+                      <Input placeholder="Ej: +505 8888 8888" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={8}>
+                    <Form.Item label="Gesta actual" name="gesta_actual" rules={[{ required: true, message: "Indica la gesta actual" }]}>
+                      <InputNumber min={1} style={{ width: "100%" }} />
+                    </Form.Item>
+                  </Col>
+                </Row>
+                <Row gutter={16}>
+                  <Col xs={24} md={8}>
+                    <Form.Item label="Nombres" name="nombre">
+                      <Input disabled />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={8}>
+                    <Form.Item label="Apellidos" name="apellido">
+                      <Input disabled />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={8}>
+                    <Form.Item label="Fecha de nacimiento" name="fecha_nac">
+                      <DatePicker style={{ width: "100%" }} format="YYYY-MM-DD" disabled />
+                    </Form.Item>
+                  </Col>
+                </Row>
+              </>
+            )}
+
+            {showGeneralFieldsNotFound && (
               <Row gutter={16}>
-                <Col xs={24} md={8}>
-                  <Form.Item label="Código de expediente" name="codigo_expediente">
-                    <Input disabled />
+                <Col xs={24} md={12}>
+                  <Form.Item label="Nombres" name="nombre" hidden={!showGeneralFieldsNotFound} rules={[{ required: true, message: "Ingresa los nombres" }]}>
+                    <Input placeholder="Ej: María Fernanda" autoCapitalize="words" />
                   </Form.Item>
                 </Col>
-                <Col xs={24} md={8}>
-                  <Form.Item label="Teléfono" name="telefono" rules={[{ required: true, message: "Ingresa el teléfono" }]}>
-                    <Input placeholder="Ej: +505 8888 8888" />
-                  </Form.Item>
-                </Col>
-                <Col xs={24} md={8}>
-                  <Form.Item label="Gesta actual" name="gesta_actual" rules={[{ required: true, message: "Indica la gesta actual" }]}>
-                    <InputNumber min={1} style={{ width: "100%" }} />
+                <Col xs={24} md={12}>
+                  <Form.Item label="Apellidos" name="apellido" hidden={!showGeneralFieldsNotFound} rules={[{ required: true, message: "Ingresa los apellidos" }]}>
+                    <Input placeholder="Ej: Ramírez López" autoCapitalize="words" />
                   </Form.Item>
                 </Col>
               </Row>
             )}
-
-            <Row gutter={16}>
-              <Col xs={24} md={12}>
-                <Form.Item label="Nombres" name="nombre" hidden={!showGeneralFieldsNotFound} rules={[{ required: true, message: "Ingresa los nombres" }]}>
-                  <Input placeholder="Ej: María Fernanda" autoCapitalize="words" />
-                </Form.Item>
-              </Col>
-              <Col xs={24} md={12}>
-                <Form.Item label="Apellidos" name="apellido" hidden={!showGeneralFieldsNotFound} rules={[{ required: true, message: "Ingresa los apellidos" }]}>
-                  <Input placeholder="Ej: Ramírez López" autoCapitalize="words" />
-                </Form.Item>
-              </Col>
-            </Row>
 
             <Row gutter={16}>
               <Col xs={24} md={8}>
@@ -402,7 +451,7 @@ const RegisterPacientePage = () => {
               </Col>
               <Col xs={24} md={8}>
                 <Form.Item label="Sexo" name="sexo" hidden={!showGeneralFieldsNotFound}>
-                  <Select allowClear options={sexoOptions} placeholder="Selecciona" />
+                  <Select allowClear={false} options={sexoOptions} placeholder="Femenino" />
                 </Form.Item>
               </Col>
               <Col xs={24} md={8}>
@@ -423,43 +472,48 @@ const RegisterPacientePage = () => {
               </Col>
             </Row>
 
-            <Row gutter={16}>
-              <Col xs={24} md={12}>
+            {showPostSearch && (
+              <Row gutter={16}>
+                <Col xs={24} md={12}>
                 <Form.Item label="Dirección" name="direccion" rules={[{ required: true, message: "Ingresa la dirección" }]}>
-                  <Input.TextArea rows={2} placeholder="Dirección exacta" />
+                  <Input.TextArea rows={2} placeholder="Dirección exacta" autoComplete="off" />
                 </Form.Item>
               </Col>
               <Col xs={24} md={12}>
                 <Form.Item label="Localidad / Barrio" name="bairro" rules={[{ required: true, message: "Ingresa la localidad" }]}>
-                  <Input placeholder="Ej: Barrio San Juan" />
+                  <Input placeholder="Ej: Barrio San Juan" autoComplete="off" />
                 </Form.Item>
               </Col>
-            </Row>
+              </Row>
+            )}
 
-            <Row gutter={16}>
-              <Col xs={24} md={6}>
-                <Form.Item label="Código de municipio" name="municipio_codigo" hidden={!showGeneralFieldsNotFound}>
-                  <Input placeholder="Ej: 161" />
-                </Form.Item>
-              </Col>
-              <Col xs={24} md={12}>
-                <Form.Item label="Contacto de emergencia" style={{ marginBottom: 0 }} hidden={!showGeneralFieldsNotFound}>
-                  <Row gutter={8}>
-                    <Col span={14}>
-                      <Form.Item name={["contacto_emergencia", "nombre"]} noStyle>
-                        <Input placeholder="Nombre" />
-                      </Form.Item>
-                    </Col>
-                    <Col span={10}>
-                      <Form.Item name={["contacto_emergencia", "telefono"]} noStyle>
-                        <Input placeholder="Teléfono" />
-                      </Form.Item>
-                    </Col>
-                  </Row>
-                </Form.Item>
-              </Col>
-            </Row>
+            {showGeneralFieldsNotFound && (
+              <Row gutter={16}>
+                <Col xs={24} md={6}>
+                  <Form.Item label="Código de municipio" name="municipio_codigo" hidden={!showGeneralFieldsNotFound}>
+                    <Input placeholder="Ej: 161" />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} md={12}>
+                  <Form.Item label="Contacto de emergencia" style={{ marginBottom: 0 }} hidden={!showGeneralFieldsNotFound}>
+                    <Row gutter={8}>
+                      <Col span={14}>
+                        <Form.Item name={["contacto_emergencia", "nombre"]} noStyle>
+                          <Input placeholder="Nombre" />
+                        </Form.Item>
+                      </Col>
+                      <Col span={10}>
+                        <Form.Item name={["contacto_emergencia", "telefono"]} noStyle>
+                          <Input placeholder="Teléfono" />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                  </Form.Item>
+                </Col>
+              </Row>
+            )}
 
+            {showPostSearch && (
             <Space style={{ width: "100%", justifyContent: "space-between" }}>
               <Space>
                 <Button
@@ -489,6 +543,15 @@ const RegisterPacientePage = () => {
                 </Button>
               </Space>
             </Space>
+            )}
+
+            {estado === "found" && updatedTick && (
+              <Alert
+                type="success"
+                showIcon
+                message="Los datos del paciente están actualizados"
+              />
+            )}
           </Form>
         </Card>
 

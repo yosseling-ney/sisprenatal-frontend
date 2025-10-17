@@ -1,4 +1,4 @@
-import {
+﻿import {
   DeleteOutlined,
   EditOutlined,
   PlusOutlined,
@@ -117,16 +117,9 @@ const UsuariosPage = () => {
   };
 
   const handleEdit = (usuario: Usuario) => {
+    // Guardamos el usuario a editar y abrimos el modal.
+    // Los campos se precargarán vía initialValues del Form al montarse.
     setEditingUser(usuario);
-    form.setFieldsValue({
-      nombre: usuario.nombre,
-      apellido: usuario.apellido,
-      correo: usuario.correo,
-      telefono: usuario.telefono,
-      username: usuario.username,
-      password: "",
-      rol: usuario.rol,
-    });
     setIsModalOpen(true);
   };
 
@@ -144,16 +137,36 @@ const UsuariosPage = () => {
 
       if (editingUser) {
         const { password, ...rest } = values;
-        const payload: UpdateUsuarioPayload = { ...rest };
+        // Construir payload parcial: solo campos cambiados y no vacíos
+        const payload: UpdateUsuarioPayload = {};
+        const keys: (keyof UpdateUsuarioPayload)[] = [
+          "nombre",
+          "apellido",
+          "correo",
+          "telefono",
+          "username",
+          "rol",
+        ];
+        keys.forEach((key) => {
+          const newValue = (rest as any)[key];
+          const currentValue = (editingUser as any)[key];
+          if (newValue !== undefined && newValue !== null && newValue !== "" && newValue !== currentValue) {
+            (payload as any)[key] = newValue;
+          }
+        });
         if (password) {
           payload.password = password;
+        }
+        if (Object.keys(payload).length === 0) {
+          message.info("No hay cambios para actualizar");
+          return;
         }
         await updateMutation.mutateAsync({ id: editingUser._id, payload });
       } else {
         await createMutation.mutateAsync(values);
       }
     } catch (error) {
-      // Ant Design ya muestra los errores de validaci�n del formulario
+      // Ant Design ya muestra los errores de validación del formulario
       console.error(error);
     }
   };
@@ -200,7 +213,7 @@ const UsuariosPage = () => {
             Editar
           </Button>
           <Popconfirm
-            title="�Eliminar usuario?"
+            title="¿Eliminar usuario?"
             description="Esta accion no se puede deshacer"
             onConfirm={() => handleDelete(record)}
             okText="Eliminar"
@@ -274,18 +287,35 @@ const UsuariosPage = () => {
         confirmLoading={createMutation.isPending || updateMutation.isPending}
         destroyOnClose
       >
-        <Form<CreateUsuarioPayload> layout="vertical" form={form} preserve={false}>
+        <Form<CreateUsuarioPayload>
+          layout="vertical"
+          form={form}
+          preserve={false}
+          initialValues={
+            editingUser
+              ? {
+                  nombre: editingUser.nombre,
+                  apellido: editingUser.apellido,
+                  correo: editingUser.correo,
+                  telefono: editingUser.telefono,
+                  username: editingUser.username,
+                  password: "",
+                  rol: editingUser.rol,
+                }
+              : undefined
+          }
+        >
           <Form.Item
             label="Nombre"
             name="nombre"
-            rules={[{ required: true, message: "Ingresa el nombre" }]}
+            rules={editingUser ? [] : [{ required: true, message: "Ingresa el nombre" }]}
           >
             <Input placeholder="Nombre" />
           </Form.Item>
           <Form.Item
             label="Apellido"
             name="apellido"
-            rules={[{ required: true, message: "Ingresa el apellido" }]}
+            rules={editingUser ? [] : [{ required: true, message: "Ingresa el apellido" }]}
           >
             <Input placeholder="Apellido" />
           </Form.Item>
@@ -293,40 +323,40 @@ const UsuariosPage = () => {
             label="Correo"
             name="correo"
             rules={[
-              { required: true, message: "Ingresa el correo" },
-              { type: "email", message: "Ingresa un correo valido" },
+              ...(editingUser ? [] : [{ required: true, message: "Ingresa el correo" }]),
+              { type: "email", message: "Ingresa un correo válido" },
             ]}
           >
             <Input placeholder="correo@ejemplo.com" />
           </Form.Item>
-          <Form.Item label="Telefono" name="telefono">
-            <Input placeholder="Numero de telefono" />
+          <Form.Item label="Teléfono" name="telefono">
+            <Input placeholder="Número de teléfono" />
           </Form.Item>
           <Form.Item
             label="Nombre de usuario"
             name="username"
-            rules={[{ required: true, message: "Ingresa el nombre de usuario" }]}
+            rules={editingUser ? [] : [{ required: true, message: "Ingresa el nombre de usuario" }]}
           >
             <Input placeholder="usuario" />
           </Form.Item>
           <Form.Item
-            label="Contrase�a"
+            label="Contraseña"
             name="password"
             rules={
               editingUser
                 ? [{ min: 6, message: "Debe tener al menos 6 caracteres" }]
                 : [
-                    { required: true, message: "Ingresa una contrase�a" },
+                    { required: true, message: "Ingresa una contraseña" },
                     { min: 6, message: "Debe tener al menos 6 caracteres" },
                   ]
             }
           >
-            <Input.Password placeholder={editingUser ? "Deja en blanco para mantener" : "Contrase�a"} />
+            <Input.Password placeholder={editingUser ? "Deja en blanco para mantener" : "Contraseña"} />
           </Form.Item>
           <Form.Item
             label="Rol"
             name="rol"
-            rules={[{ required: true, message: "Selecciona un rol" }]}
+            rules={editingUser ? [] : [{ required: true, message: "Selecciona un rol" }]}
           >
             <Select options={ROLE_OPTIONS} placeholder="Selecciona el rol" />
           </Form.Item>
@@ -337,3 +367,4 @@ const UsuariosPage = () => {
 };
 
 export default UsuariosPage;
+
