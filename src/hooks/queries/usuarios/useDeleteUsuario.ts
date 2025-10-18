@@ -13,8 +13,8 @@ export const useDeleteUsuario = (
   useMutation<DeleteUsuarioResponse, Error, string>({
     mutationFn: deleteUsuario,
     ...options,
-    onSuccess: (data, variables, context) => {
+    onSuccess: (data, variables, onMutateResult, context) => {
       queryClient.invalidateQueries({ queryKey: USUARIOS_QUERY_KEY });
-      options?.onSuccess?.(data, variables, context);
+      options?.onSuccess?.(data, variables, onMutateResult, context);
     },
   });

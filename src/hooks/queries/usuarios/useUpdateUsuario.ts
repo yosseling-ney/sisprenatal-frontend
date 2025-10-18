@@ -35,8 +35,8 @@ export const useUpdateUsuario = (
       return updateUsuario({ id, payload: cleaned });
     },
     ...options,
-    onSuccess: (data, variables, context) => {
+    onSuccess: (data, variables, onMutateResult, context) => {
       queryClient.invalidateQueries({ queryKey: USUARIOS_QUERY_KEY });
-      options?.onSuccess?.(data, variables, context);
+      options?.onSuccess?.(data, variables, onMutateResult, context);
     },
   });

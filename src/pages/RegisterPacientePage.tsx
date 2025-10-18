@@ -276,14 +276,25 @@ const RegisterPacientePage = () => {
       message.error("Telefono invalido (8-15 digitos, +, -, espacio)");
       return;
     }
-    if (values.municipio_codigo)
-      datosGenerales.municipio_codigo = (values.municipio_codigo || "").toString().trim();
+    if (values.municipio_codigo) {
+      const mc = (values.municipio_codigo || "").toString().trim();
+      if (!/^\d{3}$/.test(mc)) {
+        message.error("Código de municipio inválido (debe tener 3 dígitos)");
+        return;
+      }
+      datosGenerales.municipio_codigo = mc;
+    }
     if (values.sexo) datosGenerales.sexo = values.sexo;
     const contacto = values.contacto_emergencia;
     if (contacto?.nombre && contacto.telefono) {
+      const telEmerg = (contacto.telefono || "").trim();
+      if (!/^[0-9+\-\s]{8,15}$/.test(telEmerg)) {
+        message.error("Teléfono de emergencia inválido (8-15 dígitos, +, -, espacio)");
+        return;
+      }
       datosGenerales.contacto_emergencia = {
         nombre: (contacto.nombre || "").trim(),
-        telefono: (contacto.telefono || "").trim(),
+        telefono: telEmerg,
       };
     }
     try {

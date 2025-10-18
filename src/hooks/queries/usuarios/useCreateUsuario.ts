@@ -17,8 +17,8 @@ export const useCreateUsuario = (
   useMutation<CreateUsuarioResponse, Error, CreateUsuarioPayload>({
     mutationFn: createUsuario,
     ...options,
-    onSuccess: (data, variables, context) => {
+    onSuccess: (data, variables, onMutateResult, context) => {
       queryClient.invalidateQueries({ queryKey: USUARIOS_QUERY_KEY });
-      options?.onSuccess?.(data, variables, context);
+      options?.onSuccess?.(data, variables, onMutateResult, context);
     },
   });
