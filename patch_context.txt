@@ -1,0 +1,33 @@
+320:         </Col>
+321:         <Col xs={24} md={6}>
+322:           <Form.Item name="hb_ge20" label="Hb ≥ 20 sem (g/dL)">
+323:             <InputNumber min={0} max={30} step={0.1} style={{ width: "100%" }} />
+324:           </Form.Item>
+325:         </Col>
+326:         <Col xs={24} md={6}>
+327:           <Form.Item name="hierro_acido_folico" label="Fe/Folatos indicados" rules={[{ required: true }]}>
+328:             <Radio.Group>
+329:               <Radio value>Si</Radio>
+330:               <Radio value={false}>No</Radio>
+331:             </Radio.Group>
+332:           </Form.Item>
+333:         </Col>
+334:         <Col xs={24} md={6}>
+335:           <Form.Item name="hemoglobina" label="Hemoglobina (actual) g/dL" rules={[{ required: true }]}>
+336:             <InputNumber min={0} max={30} step={0.1} style={{ width: "100%" }} />
+337:           </Form.Item>
+338:         </Col>
+339:       </Row>
+340: 
+341:       <Row gutter={16}>
+342:         <Col xs={24} md={6}>
+343:           <Form.Item name="glucemia1" label="Glucemia &lt; 24 sem (mg/dL)" rules={[{ required: true }]}>
+344:             <InputNumber min={0} style={{ width: "100%" }} />
+345:           </Form.Item>
+346:         </Col>
+347:         <Col xs={24} md={6}>
+348:           <Form.Item name="glucemia2" label="Glucemia ≥ 24 sem (mg/dL)" rules={[{ required: true }]}>
+349:             <InputNumber min={0} style={{ width: "100%" }} />
+350:           </Form.Item>
+351:         </Col>
+352:         <Col xs={24} md={12}>
