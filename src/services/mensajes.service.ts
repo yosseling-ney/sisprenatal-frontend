@@ -1,5 +1,4 @@
 import http from "../lib/http";
-import { buscarPacientePorIdentificacion, buscarPacientePorExpediente } from "./paciente.service";
 import { buscarPacientePorIdentificacion } from "./paciente.service";
 
 export interface ApiResponse<T> {
@@ -101,7 +100,6 @@ export const listarMensajes = async (params: ListarMensajesParams = {}) => {
     // Backend solo acepta filtro por paciente_id. Resolver previamente si vienen hints.
     const hasPid = !!q.paciente_id && isValidObjectId(String(q.paciente_id));
     const hasIdentHints = !!q.tipo_identificacion && !!q.numero_identificacion;
-    const hasExpediente = !!q.codigo_expediente;
 
     if (!hasPid) {
       // Si no hay paciente_id válido, pero hay hints, resolver paciente primero.
@@ -111,18 +109,6 @@ export const listarMensajes = async (params: ListarMensajesParams = {}) => {
             q.tipo_identificacion as any,
             String(q.numero_identificacion)
           );
-          const pid = (paciente as any)?.id || (paciente as any)?._id;
-          if (pid && isValidObjectId(String(pid))) {
-            q.paciente_id = String(pid);
-          } else {
-            return { items: [], page: Number(q.page) || 1, per_page: Number(q.per_page) || 20, total: 0 } as MensajesList;
-          }
-        } catch {
-          return { items: [], page: Number(q.page) || 1, per_page: Number(q.per_page) || 20, total: 0 } as MensajesList;
-        }
-      } else if (hasExpediente) {
-        try {
-          const paciente = await buscarPacientePorExpediente(String(q.codigo_expediente));
           const pid = (paciente as any)?.id || (paciente as any)?._id;
           if (pid && isValidObjectId(String(pid))) {
             q.paciente_id = String(pid);
