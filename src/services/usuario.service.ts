@@ -72,7 +72,8 @@ export interface UpdateUsuarioPayload {
   rol?: string;
 }
 
-const USUARIOS_ROUTE = "/usuarios";
+// relative route; combined with baseURL '/api'
+const USUARIOS_ROUTE = `usuarios`;
 
 export const listUsuarios = async () => {
   const { data } = await http.get(USUARIOS_ROUTE);

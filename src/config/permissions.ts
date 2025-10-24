@@ -117,6 +117,13 @@ export const NAVIGATION_ITEMS: NavigationItem[] = [
     permission: PERMISSIONS.USUARIOS_MANAGE,
   },
   {
+    key: "medicos",
+    label: "Medicos",
+    to: "/medicos",
+    icon: createElement(TeamOutlined),
+    permission: PERMISSIONS.USUARIOS_MANAGE,
+  },
+  {
     key: "configuracion",
     label: "Configuracion",
     to: "/configuracion",

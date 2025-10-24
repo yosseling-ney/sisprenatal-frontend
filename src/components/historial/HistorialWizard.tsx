@@ -170,7 +170,17 @@ const HistorialWizard = ({ open, onClose, pacienteId, pacienteDatos, historialId
   useEffect(() => {
     if (!open) return;
 
+    // Reiniciar todos los formularios al abrir para evitar residuos
     form.resetFields();
+    antForm.resetFields();
+    gaForm.resetFields();
+    paForm.resetFields();
+    patForm.resetFields();
+    rnForm.resetFields();
+    pueForm.resetFields();
+    enForm.resetFields();
+    emForm.resetFields();
+    acForm.resetFields();
 
     const fechaNacimiento = pacienteDatos.fecha_nac ? dayjs(pacienteDatos.fecha_nac) : undefined;
     const initialValues: Partial<IdentificacionFormValues> = {
@@ -193,7 +203,7 @@ const HistorialWizard = ({ open, onClose, pacienteId, pacienteDatos, historialId
     };
     form.setFieldsValue(initialValues as IdentificacionFormValues);
     setCurrentStep(0);
-  }, [open, pacienteDatos, form]);
+  }, [open, pacienteDatos, form, antForm, gaForm, paForm, patForm, rnForm, pueForm, enForm, emForm, acForm]);
 
   // Prefill desde agregado
   useEffect(() => {

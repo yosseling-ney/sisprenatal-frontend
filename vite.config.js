@@ -1,20 +1,16 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
-  server: {
-    proxy: {
-      '/api': {
-        target: process.env.VITE_BACKEND_ORIGIN || 'http://localhost:5000',
-        changeOrigin: true,
-        secure: false,
-        // Reescribir para que '/api/...' -> '...'
-        // El backend expone rutas como '/mensajes', '/pacientes', etc. (sin prefijo '/api').
-        // Así, '/api/mensajes' en el frontend se convierte en '/mensajes' en el backend.
-        rewrite: (path) => path.replace(/^\/api/, ''),
-      },
-    },
-  },
+plugins: [react()],
+server: {
+proxy: {
+'/api': {
+target: process.env.VITE_BACKEND_ORIGIN || 'http://localhost:5000',
+changeOrigin: true,
+secure: false,
+// sin rewrite: el backend expone '/api/*'
+},
+},
+},
 })

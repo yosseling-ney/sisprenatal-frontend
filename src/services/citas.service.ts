@@ -41,7 +41,7 @@ export interface CitasList {
   total: number;
 }
 
-const ROUTE = "/citas";
+const ROUTE = `citas`;
 
 const normalize = (doc: CitaApi): CitaItem => ({
   id: doc._id,

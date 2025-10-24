@@ -13,6 +13,7 @@ import RegisterPacientePage from "./pages/RegisterPacientePage";
 import ReportsPage from "./pages/ReportsPage";
 import SettingsPage from "./pages/SettingsPage";
 import UsuariosPage from "./pages/UsuariosPage";
+import MedicosPage from "./pages/MedicosPage";
 
 const App = () => {
   return (
@@ -45,6 +46,10 @@ const App = () => {
 
           <Route element={<RequireAuth permissions={[PERMISSIONS.USUARIOS_MANAGE]} />}>
             <Route path="usuarios" element={<UsuariosPage />} />
+          </Route>
+
+          <Route element={<RequireAuth permissions={[PERMISSIONS.USUARIOS_MANAGE]} />}>
+            <Route path="medicos" element={<MedicosPage />} />
           </Route>
 
           <Route element={<RequireAuth permissions={[PERMISSIONS.CONFIG_ACCESS]} />}>

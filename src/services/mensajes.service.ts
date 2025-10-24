@@ -1,4 +1,6 @@
 import http from "../lib/http";
+import { buscarPacientePorIdentificacion, buscarPacientePorExpediente } from "./paciente.service";
+import { buscarPacientePorIdentificacion } from "./paciente.service";
 
 export interface ApiResponse<T> {
   ok: boolean;
@@ -45,7 +47,19 @@ export interface MensajesList {
 
 // Base URL se configura con VITE_API_BASE_URL (en dev: "/api").
 // Aquí solo definimos el path relativo del recurso.
-const ROUTE = "/mensajes";
+const ROUTE = `mensajes`;
+
+const isEmpty = (v: any) => v === undefined || v === null || (typeof v === "string" && v.trim() === "");
+const isValidObjectId = (v: any) => typeof v === "string" && /^[0-9a-fA-F]{24}$/.test(v);
+const clean = <T extends Record<string, any>>(obj: T): T => {
+  const out: Record<string, any> = {};
+  Object.entries(obj || {}).forEach(([k, v]) => {
+    if (isEmpty(v)) return;
+    if (k === "paciente_id" && !isValidObjectId(v)) return; // evita 422 por ObjectId inválido
+    out[k] = v;
+  });
+  return out as T;
+};
 
 const normalize = (doc: MensajeItemApi): MensajeItem => ({
   id: doc._id,
@@ -83,15 +97,60 @@ export interface ListarMensajesParams {
 
 export const listarMensajes = async (params: ListarMensajesParams = {}) => {
   try {
+    const q = clean(params);
+    // Backend solo acepta filtro por paciente_id. Resolver previamente si vienen hints.
+    const hasPid = !!q.paciente_id && isValidObjectId(String(q.paciente_id));
+    const hasIdentHints = !!q.tipo_identificacion && !!q.numero_identificacion;
+    const hasExpediente = !!q.codigo_expediente;
+
+    if (!hasPid) {
+      // Si no hay paciente_id válido, pero hay hints, resolver paciente primero.
+      if (hasIdentHints) {
+        try {
+          const paciente = await buscarPacientePorIdentificacion(
+            q.tipo_identificacion as any,
+            String(q.numero_identificacion)
+          );
+          const pid = (paciente as any)?.id || (paciente as any)?._id;
+          if (pid && isValidObjectId(String(pid))) {
+            q.paciente_id = String(pid);
+          } else {
+            return { items: [], page: Number(q.page) || 1, per_page: Number(q.per_page) || 20, total: 0 } as MensajesList;
+          }
+        } catch {
+          return { items: [], page: Number(q.page) || 1, per_page: Number(q.per_page) || 20, total: 0 } as MensajesList;
+        }
+      } else if (hasExpediente) {
+        try {
+          const paciente = await buscarPacientePorExpediente(String(q.codigo_expediente));
+          const pid = (paciente as any)?.id || (paciente as any)?._id;
+          if (pid && isValidObjectId(String(pid))) {
+            q.paciente_id = String(pid);
+          } else {
+            return { items: [], page: Number(q.page) || 1, per_page: Number(q.per_page) || 20, total: 0 } as MensajesList;
+          }
+        } catch {
+          return { items: [], page: Number(q.page) || 1, per_page: Number(q.per_page) || 20, total: 0 } as MensajesList;
+        }
+      } else {
+        // Sin paciente_id ni hints → no consultamos para evitar 422.
+        return { items: [], page: Number(q.page) || 1, per_page: Number(q.per_page) || 20, total: 0 } as MensajesList;
+      }
+    }
+
+    // Solo enviar los parámetros que el backend acepta
+    const finalParams = {
+      paciente_id: q.paciente_id,
+      page: q.page,
+      per_page: q.per_page,
+    } as Record<string, any>;
+
     const { data } = await http.get<ApiResponse<MensajesList & { items: MensajeItemApi[] }>>(
       `${ROUTE}/`,
-      { params }
+      { params: finalParams }
     );
     const payload = handleResponse(data);
-    return {
-      ...payload,
-      items: (payload.items ?? []).map(normalize),
-    } as MensajesList;
+    return { ...payload, items: (payload.items ?? []).map(normalize) } as MensajesList;
   } catch (err: any) {
     const msg = err?.response?.data?.error || err?.message || "No se pudo obtener los mensajes";
     throw new Error(msg);
@@ -119,7 +178,8 @@ export interface CrearMensajeResult {
 
 export const crearMensaje = async (payload: CrearMensajePayload) => {
   try {
-    const { data } = await http.post<ApiResponse<CrearMensajeResult>>(`${ROUTE}/`, payload);
+    const body = clean(payload);
+    const { data } = await http.post<ApiResponse<CrearMensajeResult>>(`${ROUTE}/`, body);
     return handleResponse(data);
   } catch (err: any) {
     const msg = err?.response?.data?.error || err?.message || "No se pudo crear el mensaje";

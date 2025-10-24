@@ -18,7 +18,7 @@ export interface LoginResponse {
 }
 
 const AUTH_ROUTES = {
-  login: "/login",
+  login: `login`,
 };
 
 export const login = async (payload: LoginPayload) => {

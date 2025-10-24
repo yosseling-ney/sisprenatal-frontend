@@ -83,7 +83,7 @@ export interface CrearPacienteResult {
   historial_id: Maybe<string>;
 }
 
-const PACIENTES_ROUTE = "/pacientes";
+const PACIENTES_ROUTE = `pacientes`;
 
 const handleResponse = <T,>(response: ApiResponse<T>) => {
   if (!response.ok) {
@@ -144,14 +144,80 @@ export const buscarPacientePorIdentificacion = async (
   tipo_identificacion: TipoIdentificacion,
   numero_identificacion: string
 ) => {
-  const { data } = await http.get<ApiResponse<Paciente>>(
-    `${PACIENTES_ROUTE}/identificacion`,
-    {
-      params: {
-        tipo_identificacion,
-        numero_identificacion,
-      },
+  // Intentar primero ruta top-level '/api/identificacion' (según mapa de rutas compartido)
+  // y hacer fallback a '/api/pacientes/identificacion' si no existe.
+  const normalizeId = (p: any) => {
+    if (!p) return p;
+    if (!p.id && p._id) p.id = String(p._id);
+    return p as Paciente;
+  };
+  try {
+    const { data } = await http.get<ApiResponse<Paciente>>(
+      `identificacion`,
+      { params: { tipo_identificacion, numero_identificacion } }
+    );
+    return normalizeId(handleResponse(data));
+  } catch (err: any) {
+    const status = err?.response?.status;
+    if (status === 404 || status === 405) {
+      const { data } = await http.get<ApiResponse<Paciente>>(
+        `${PACIENTES_ROUTE}/identificacion`,
+        { params: { tipo_identificacion, numero_identificacion } }
+      );
+      return normalizeId(handleResponse(data));
     }
-  );
-  return handleResponse(data);
+    throw err;
+  }
+};
+
+export const buscarPacientePorExpediente = async (
+  codigo_expediente: string
+) => {
+  // Normalizar como en backend: mayúsculas y eliminar separadores no alfanuméricos
+  const normalizeExp = (s: string) => (s || "").toString().trim().toUpperCase().replace(/[^0-9A-Z]/g, "");
+  const codigo = normalizeExp(codigo_expediente);
+  const normalizeId = (p: any) => {
+    if (!p) return p;
+    if (!p.id && p._id) p.id = String(p._id);
+    return p as Paciente;
+  };
+  // Intentar primero ruta top-level '/api/expediente?codigo_expediente=...'
+  try {
+    const { data } = await http.get<ApiResponse<Paciente>>(
+      `expediente`,
+      { params: { codigo_expediente: codigo } }
+    );
+    return normalizeId(handleResponse(data));
+  } catch (err: any) {
+    const status = err?.response?.status;
+    if (status === 404 || status === 405) {
+      // Fallback 1: '/api/pacientes/expediente'
+      try {
+        const { data } = await http.get<ApiResponse<Paciente>>(
+          `${PACIENTES_ROUTE}/expediente`,
+          { params: { codigo_expediente: codigo } }
+        );
+        return normalizeId(handleResponse(data));
+      } catch (err2: any) {
+        const status2 = err2?.response?.status;
+        if (status2 === 404 || status2 === 405) {
+          // Fallback 2: '/api/pacientes' con query param
+          const { data } = await http.get<ApiResponse<Paciente | Paciente[]>>(
+            `${PACIENTES_ROUTE}`,
+            { params: { codigo_expediente: codigo } }
+          );
+          const payload = handleResponse(data) as any;
+          if (Array.isArray(payload)) {
+            return normalizeId(payload[0] || null);
+          }
+          return normalizeId(payload);
+        }
+        // Tratar 422 (formato inválido) como no encontrado para evitar romper el flujo de UI
+        if (status2 === 422) return null as any;
+        throw err2;
+      }
+    }
+    if (status === 422) return null as any;
+    throw err;
+  }
 };

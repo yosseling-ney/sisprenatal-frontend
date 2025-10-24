@@ -12,7 +12,7 @@ export interface GoogleStatus {
   expires_at?: string | null;
 }
 
-const ROUTE = "/integrations/google";
+const ROUTE = `integrations/google`;
 
 const handleResponse = <T,>(response: ApiResponse<T>) => {
   if (!response.ok) {

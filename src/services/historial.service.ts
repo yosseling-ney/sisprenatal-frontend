@@ -26,7 +26,7 @@ export interface CrearHistorialResult {
   secciones_creadas: Record<string, string | undefined>;
 }
 
-const HISTORIALES_ROUTE = "/historiales";
+const HISTORIALES_ROUTE = `historiales`;
 
 const handleResponse = <T,>(response: ApiResponse<T>) => {
   if (!response.ok) {
