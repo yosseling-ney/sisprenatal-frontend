@@ -1,10 +1,9 @@
 import React from "react";
-import { CalendarOutlined, PlusOutlined } from "@ant-design/icons";
+import { PlusOutlined } from "@ant-design/icons";
 import {
   Button,
   Card,
   Col,
-  Divider,
   Empty,
   Row,
   Space,
@@ -17,30 +16,57 @@ import {
   Input,
   DatePicker,
   Select,
+  TimePicker,
+  AutoComplete,
+  ConfigProvider,
 } from "antd";
+import esES from "antd/locale/es_ES";
 import dayjs from "dayjs";
+import "dayjs/locale/es";
+dayjs.locale("es");
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useCitasHoy } from "../hooks/queries/citas/useCitasHoy";
 import { useCitasProximas } from "../hooks/queries/citas/useCitasProximas";
-import {
-  disconnectGoogle,
-  startGoogleOAuth,
-  getDefaultCalendar,
-  listCalendars,
-  setDefaultCalendar,
-  importFromGoogle,
-} from "../services/google.service";
-import { useGoogleStatus } from "../hooks/queries/google/useGoogleStatus";
+import { ESPECIALIDADES_VALIDAS, listMedicos } from "../services/medicos.service";
 import {
   buscarPacientePorIdentificacion,
   TipoIdentificacion,
 } from "../services/paciente.service";
-import { crearCita, CitaItem } from "../services/citas.service";
+import { crearCita, CitaItem, actualizarCita, eliminarCita } from "../services/citas.service";
 import { usePaciente } from "../hooks/queries/usePaciente";
 
 const AppointmentsPage = () => {
   const queryClient = useQueryClient();
+  const STATUS_LABEL: Record<"scheduled" | "completed" | "cancelled", string> = {
+    scheduled: "Programada",
+    completed: "Completada",
+    cancelled: "Cancelada",
+  };
+  const STATUS_COLOR: Record<"scheduled" | "completed" | "cancelled", string> = {
+    scheduled: "blue",
+    completed: "green",
+    cancelled: "red",
+  };
+  const TITULOS_CITA = [
+    "Consulta Prenatal",
+    "Seguimiento Prenatal",
+    "Control Prenatal",
+    "Evaluación Prenatal",
+    "Primera Cita Prenatal",
+    "Cita Médica de Embarazo",
+    "Citas del Primer Trimestre",
+    "Seguimiento del Segundo Trimestre",
+    "Revisiones del Tercer Trimestre",
+    "Cita de la Semana 36",
+    "Plan de Parto y Opciones de Parto",
+    "Pruebas y Análisis Prenatales",
+    "Asesoramiento sobre Nutrición y Ejercicio",
+    "Salud y Bienestar en el Embarazo",
+    "Riesgos y Complicaciones del Embarazo",
+    "Citas para el Desarrollo del Bebé",
+    "Control de Peso y Presión Arterial",
+  ];
 
   // ---- Estado UI (modal, formularios, búsqueda paciente, import range)
   const [isModalOpen, setIsModalOpen] = React.useState(false);
@@ -49,48 +75,35 @@ const AppointmentsPage = () => {
   const [buscandoPaciente, setBuscandoPaciente] = React.useState(false);
   const [tipoIdent, setTipoIdent] = React.useState<TipoIdentificacion>("CI");
   const [numeroIdent, setNumeroIdent] = React.useState<string>("");
-  const [importRange, setImportRange] = React.useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
+  const [especialidad, setEspecialidad] = React.useState<string | undefined>(undefined);
+  const [medicoId, setMedicoId] = React.useState<string | undefined>(undefined);
+  // búsqueda local de citas
+  const [search, setSearch] = React.useState("");
+  // detalle / edición
+  const [citaSeleccionada, setCitaSeleccionada] = React.useState<CitaItem | null>(null);
+  const [isDetailOpen, setIsDetailOpen] = React.useState(false);
+  const [isEditOpen, setIsEditOpen] = React.useState(false);
+  const [editForm] = Form.useForm();
+  const [editEspecialidad, setEditEspecialidad] = React.useState<string | undefined>(undefined);
+  const [editMedicoId, setEditMedicoId] = React.useState<string | undefined>(undefined);
 
-  // ---- Primero: estado de Google (para usarlo en enabled de las demás queries)
-  const { data: googleStatus, isLoading: loadingGoogle } = useGoogleStatus();
-  const googleConnected = !!googleStatus?.connected;
-
-  // ---- Queries dependientes del estado de Google
-  const { data: calendars } = useQuery({
-    queryKey: ["integrations", "google", "calendars"],
-    queryFn: listCalendars,
-    enabled: googleConnected,
+  // ---- Médicos por especialidad
+  const { data: medicosResp } = useQuery({
+    queryKey: ["medicos", { especialidad }],
+    queryFn: () => listMedicos({ estado: "activo", especialidad, limit: 200, page: 1 }),
+    enabled: !!especialidad,
   });
-
-  const { data: defaultCalendar } = useQuery({
-    queryKey: ["integrations", "google", "calendar", "default"],
-    queryFn: getDefaultCalendar,
-    enabled: googleConnected,
+  const { data: editMedicosResp } = useQuery({
+    queryKey: ["medicos", { especialidad: editEspecialidad, mode: "edit" }],
+    queryFn: () => listMedicos({ estado: "activo", especialidad: editEspecialidad, limit: 200, page: 1 }),
+    enabled: !!editEspecialidad,
   });
 
   // ---- Citas (independientes)
   const { data: hoy, isLoading: loadingHoy, isError: errorHoy } = useCitasHoy(100);
   const { data: proximas, isLoading: loadingProximas, isError: errorProximas } = useCitasProximas(7, 200);
 
-  // ---- Acciones Google
-  const handleConnectGoogle = async () => {
-    try {
-      const { auth_url } = await startGoogleOAuth();
-      window.location.href = auth_url;
-    } catch (e: any) {
-      message.error(e?.message || "No se pudo iniciar la conexión con Google");
-    }
-  };
-
-  const handleDisconnectGoogle = async () => {
-    try {
-      await disconnectGoogle();
-      void queryClient.invalidateQueries({ queryKey: ["integrations", "google", "status"] });
-      message.success("Integración desactivada");
-    } catch (e: any) {
-      message.error(e?.message || "No se pudo desconectar Google");
-    }
-  };
+  // (Google Calendar eliminado)
 
   // ---- Utilidades de render
   const renderHora = (iso?: string | null) => {
@@ -123,8 +136,17 @@ const AppointmentsPage = () => {
     const header = [when, pacName, tail].filter(Boolean).join(" - ");
 
     return (
-      <Card type="inner" title={header}>
-        {cita.location ? <Typography.Text type="secondary">{cita.location}</Typography.Text> : null}
+      <Card
+        type="inner"
+        title={header}
+        extra={<Tag color={STATUS_COLOR[cita.status]}>{STATUS_LABEL[cita.status]}</Tag>}
+        onClick={() => {
+          setCitaSeleccionada(cita);
+          setIsDetailOpen(true);
+        }}
+        style={{ cursor: "pointer" }}
+      >
+        {/* Oculto: ya no se muestra el lugar */}
       </Card>
     );
   };
@@ -145,6 +167,14 @@ const AppointmentsPage = () => {
             Nueva cita
           </Button>
         </Col>
+        <Col>
+          <Input.Search
+            placeholder="Buscar cita (paciente, título, doctor)"
+            allowClear
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ width: 340 }}
+          />
+        </Col>
       </Row>
 
       <Row gutter={[24, 24]}>
@@ -156,7 +186,19 @@ const AppointmentsPage = () => {
               <Empty description="No se pudo cargar" />
             ) : hoy && hoy.items.length > 0 ? (
               <Space direction="vertical" style={{ width: "100%" }}>
-                {hoy.items.map((cita) => (
+                {hoy.items
+                  .filter((c) => {
+                    const q = search.trim().toLowerCase();
+                    if (!q) return true;
+                    const pac = c.paciente_id || "";
+                    const title = c.title || "";
+                    const provider = c.provider || "";
+                    // nombre de paciente se resuelve lazy; filtra por título/provider
+                    return (
+                      title.toLowerCase().includes(q) || provider.toLowerCase().includes(q) || pac.toLowerCase() === q
+                    );
+                  })
+                  .map((cita) => (
                   <AppointmentItemCard key={cita.id} cita={cita} />
                 ))}
               </Space>
@@ -174,7 +216,15 @@ const AppointmentsPage = () => {
               <Empty description="No se pudo cargar" />
             ) : proximas && proximas.items.length > 0 ? (
               <Space direction="vertical" style={{ width: "100%" }}>
-                {proximas.items.map((cita) => (
+                {proximas.items
+                  .filter((c) => {
+                    const q = search.trim().toLowerCase();
+                    if (!q) return true;
+                    const title = c.title || "";
+                    const provider = c.provider || "";
+                    return title.toLowerCase().includes(q) || provider.toLowerCase().includes(q);
+                  })
+                  .map((cita) => (
                   <AppointmentItemCard key={cita.id} cita={cita} showDate />
                 ))}
               </Space>
@@ -185,99 +235,7 @@ const AppointmentsPage = () => {
         </Col>
       </Row>
 
-      <Divider />
-
-      <Card>
-        <Space align="center" style={{ justifyContent: "space-between", width: "100%" }}>
-          <Space align="center">
-            <CalendarOutlined style={{ fontSize: 28, color: "#1677ff" }} />
-            <div>
-              <Typography.Title level={4} style={{ margin: 0 }}>
-                Sincroniza tu calendario
-              </Typography.Title>
-              <Typography.Text type="secondary">
-                {loadingGoogle
-                  ? "Verificando estado..."
-                  : googleConnected
-                  ? `Conectado${googleStatus?.email ? ` como ${googleStatus.email}` : ""}`
-                  : "Conecta Google Calendar para recordatorios automáticos."}
-              </Typography.Text>
-            </div>
-          </Space>
-
-          <Space>
-            {googleConnected ? (
-              <>
-                <Select
-                  style={{ minWidth: 240 }}
-                  placeholder="Selecciona calendario"
-                  loading={!calendars}
-                  value={defaultCalendar?.calendar_id || undefined}
-                  onChange={async (val) => {
-                    try {
-                      await setDefaultCalendar(val);
-                      void queryClient.invalidateQueries({ queryKey: ["integrations", "google", "calendar", "default"] });
-                      message.success("Calendario actualizado");
-                    } catch (e: any) {
-                      message.error(e?.message || "No se pudo guardar el calendario");
-                    }
-                  }}
-                  options={(calendars?.items || []).map((c) => ({ value: c.id, label: c.summary }))}
-                />
-
-                <DatePicker.RangePicker
-                  showTime
-                  placeholder={["Inicio", "Fin"]}
-                  value={importRange as any}
-                  onChange={(vals) => {
-                    if (vals && vals[0] && vals[1]) {
-                      setImportRange([vals[0], vals[1]] as any);
-                    } else {
-                      setImportRange(null);
-                    }
-                  }}
-                />
-
-                <Button
-                  onClick={async () => {
-                    try {
-                      let start: string | undefined;
-                      let end: string | undefined;
-                      if (importRange) {
-                        start = importRange[0].toDate().toISOString();
-                        end = importRange[1].toDate().toISOString();
-                      } else {
-                        const now = new Date();
-                        const in30 = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-                        start = now.toISOString();
-                        end = in30.toISOString();
-                      }
-                      await importFromGoogle({
-                        calendar_id: defaultCalendar?.calendar_id || undefined,
-                        start,
-                        end,
-                        create_missing: true,
-                      });
-                      message.success("Importación iniciada");
-                      void queryClient.invalidateQueries({ queryKey: ["citas"] });
-                    } catch (e: any) {
-                      message.error(e?.message || "No se pudo importar");
-                    }
-                  }}
-                >
-                  Importar eventos
-                </Button>
-
-                <Button onClick={handleDisconnectGoogle}>Desconectar</Button>
-              </>
-            ) : (
-              <Button type="primary" onClick={handleConnectGoogle} loading={loadingGoogle}>
-                Conectar Google
-              </Button>
-            )}
-          </Space>
-        </Space>
-      </Card>
+      {/* (Sin sección de Google Calendar) */}
 
       {/* Modal Nueva Cita */}
       <Modal
@@ -288,6 +246,7 @@ const AppointmentsPage = () => {
         okText="Crear"
         destroyOnClose
       >
+        <ConfigProvider locale={esES}>
         <Form
           layout="vertical"
           form={form}
@@ -297,18 +256,42 @@ const AppointmentsPage = () => {
                 message.warning("Busca y selecciona un paciente");
                 return;
               }
-              const start_at: string = values.start_at?.toDate?.().toISOString?.() ?? "";
-              const end_at: string | undefined = values.end_at ? values.end_at.toDate().toISOString() : undefined;
+              // combinar fecha y hora
+              const fecha = values.fecha as dayjs.Dayjs | undefined;
+              const hora = values.hora as dayjs.Dayjs | undefined;
+              if (!fecha || !hora) {
+                message.warning("Selecciona fecha y hora");
+                return;
+              }
+              const start_at: string = fecha
+                .hour(hora.hour())
+                .minute(hora.minute())
+                .second(0)
+                .millisecond(0)
+                .toDate()
+                .toISOString();
 
-              await crearCita({
+              // mapear doctor seleccionado a provider (texto)
+              const medicos = medicosResp?.data || [];
+              const providerName = medicos.find((m) => m._id === medicoId)?.nombre_completo || null;
+
+              const created = await crearCita({
                 paciente_id: pacienteEncontrado.id,
                 start_at,
-                end_at,
                 title: values.title || null,
                 description: values.description || null,
-                provider: values.provider || null,
-                location: values.location || null,
+                provider: providerName,
               });
+
+              // actualizar estado si es distinto al default
+              const estadoSeleccionado = values.status as
+                | "scheduled"
+                | "completed"
+                | "cancelled"
+                | undefined;
+              if (created?.id && estadoSeleccionado && estadoSeleccionado !== "scheduled") {
+                await actualizarCita(created.id, { status: estadoSeleccionado });
+              }
 
               message.success("Cita creada");
               setIsModalOpen(false);
@@ -373,28 +356,233 @@ const AppointmentsPage = () => {
           )}
 
           <Form.Item name="title" label="Título">
-            <Input placeholder="Motivo o título de la cita" />
+            <AutoComplete
+              placeholder="Escribe o selecciona el motivo de la cita"
+              allowClear
+              options={TITULOS_CITA.map((t) => ({ label: t, value: t }))}
+              filterOption={(inputValue, option) =>
+                (option?.value as string).toLowerCase().includes(inputValue.toLowerCase())
+              }
+            />
           </Form.Item>
-          <Form.Item name="provider" label="Profesional">
-            <Input placeholder="Ej. Dra. Salazar" />
+          <Form.Item name="status" label="Estado" initialValue="scheduled">
+            <Select
+              options={[
+                { label: "Programada", value: "scheduled" },
+                { label: "Completada", value: "completed" },
+                { label: "Cancelada", value: "cancelled" },
+              ]}
+            />
           </Form.Item>
-          <Form.Item name="location" label="Lugar">
-            <Input placeholder="Consultorio 2" />
+          <Form.Item label="Especialidad">
+            <Select
+              placeholder="Selecciona especialidad"
+              allowClear
+              value={especialidad}
+              options={ESPECIALIDADES_VALIDAS.map((e) => ({ label: e, value: e }))}
+              onChange={(val) => {
+                setEspecialidad(val);
+                setMedicoId(undefined);
+              }}
+            />
           </Form.Item>
-          <Form.Item name="description" label="Descripción">
+          <Form.Item label="Doctor">
+            <Select
+              placeholder={especialidad ? "Selecciona doctor" : "Primero elige especialidad"}
+              disabled={!especialidad}
+              value={medicoId}
+              onChange={(val) => setMedicoId(val)}
+              loading={!!especialidad && !medicosResp}
+              options={(medicosResp?.data || []).map((m) => ({ value: m._id, label: m.nombre_completo }))}
+            />
+          </Form.Item>
+          <Form.Item name="description" label="Observación">
             <Input.TextArea rows={3} placeholder="Notas u observaciones" />
           </Form.Item>
-          <Form.Item
-            name="start_at"
-            label="Inicio"
-            rules={[{ required: true, message: "Selecciona fecha y hora de inicio" }]}
-          >
-            <DatePicker showTime style={{ width: "100%" }} />
+          <Form.Item name="fecha" label="Fecha" rules={[{ required: true, message: "Selecciona la fecha" }]}>
+            <DatePicker style={{ width: "100%" }} />
           </Form.Item>
-            <Form.Item name="end_at" label="Fin (opcional)">
-            <DatePicker showTime style={{ width: "100%" }} />
+          <Form.Item name="hora" label="Hora" rules={[{ required: true, message: "Selecciona la hora" }]}>
+            <TimePicker use12Hours format="hh:mm a" style={{ width: "100%" }} />
           </Form.Item>
         </Form>
+        </ConfigProvider>
+      </Modal>
+
+      {/* Modal Detalle Cita */}
+      <Modal
+        open={isDetailOpen}
+        title="Detalle de la cita"
+        onCancel={() => setIsDetailOpen(false)}
+        footer={null}
+        destroyOnClose
+      >
+        {citaSeleccionada ? (
+          <Space direction="vertical" style={{ width: "100%" }} size="middle">
+            <Typography.Title level={5} style={{ margin: 0 }}>
+              {renderTitulo(citaSeleccionada.title, citaSeleccionada.provider)}
+            </Typography.Title>
+            <Typography.Text>
+              Fecha: {dayjs(citaSeleccionada.start_at).format("DD/MM/YYYY")} — Hora: {dayjs(citaSeleccionada.start_at).format("hh:mm a")}
+            </Typography.Text>
+            <Space align="center">
+              <Typography.Text>Estado:</Typography.Text>
+              <Tag color={STATUS_COLOR[citaSeleccionada.status]}>
+                {STATUS_LABEL[citaSeleccionada.status] || citaSeleccionada.status}
+              </Tag>
+            </Space>
+            <Typography.Text>Descripción: {citaSeleccionada.description || "-"}</Typography.Text>
+            <Space>
+              <Button
+                onClick={() => {
+                  setIsDetailOpen(false);
+                  // preparar edición
+                  setIsEditOpen(true);
+                  editForm.setFieldsValue({
+                    title: citaSeleccionada.title || undefined,
+                    status: citaSeleccionada.status,
+                    description: citaSeleccionada.description || undefined,
+                    fecha: dayjs(citaSeleccionada.start_at),
+                    hora: dayjs(citaSeleccionada.start_at),
+                  });
+                  setEditEspecialidad(undefined);
+                  setEditMedicoId(undefined);
+                }}
+              >
+                Editar
+              </Button>
+              <Button
+                danger
+                onClick={async () => {
+                  Modal.confirm({
+                    title: "Eliminar cita",
+                    content: "Esta acción no se puede deshacer.",
+                    okText: "Eliminar",
+                    okButtonProps: { danger: true },
+                    cancelText: "Cancelar",
+                    onOk: async () => {
+                      try {
+                        await eliminarCita(citaSeleccionada.id);
+                        message.success("Cita eliminada");
+                        setIsDetailOpen(false);
+                        setCitaSeleccionada(null);
+                        void queryClient.invalidateQueries({ queryKey: ["citas"] });
+                      } catch (e: any) {
+                        message.error(e?.message || "No se pudo eliminar");
+                      }
+                    },
+                  });
+                }}
+              >
+                Eliminar
+              </Button>
+            </Space>
+          </Space>
+        ) : null}
+      </Modal>
+
+      {/* Modal Editar Cita */}
+      <Modal
+        open={isEditOpen}
+        title="Editar cita"
+        onCancel={() => setIsEditOpen(false)}
+        onOk={() => editForm.submit()}
+        okText="Guardar"
+        destroyOnClose
+      >
+        <ConfigProvider locale={esES}>
+          <Form
+            layout="vertical"
+            form={editForm}
+            onFinish={async (values) => {
+              if (!citaSeleccionada) return;
+              try {
+                const fecha = values.fecha as dayjs.Dayjs | undefined;
+                const hora = values.hora as dayjs.Dayjs | undefined;
+                let payload: any = {};
+                if (fecha && hora) {
+                  const start_at: string = fecha
+                    .hour(hora.hour())
+                    .minute(hora.minute())
+                    .second(0)
+                    .millisecond(0)
+                    .toDate()
+                    .toISOString();
+                  payload.start_at = start_at;
+                }
+                if (typeof values.title !== "undefined") payload.title = values.title || null;
+                if (typeof values.description !== "undefined") payload.description = values.description || null;
+                if (typeof values.status !== "undefined") payload.status = values.status;
+                // doctor seleccionado → provider
+                const medicos = editMedicosResp?.data || [];
+                const providerName = medicos.find((m) => m._id === editMedicoId)?.nombre_completo;
+                if (providerName) payload.provider = providerName;
+
+                await actualizarCita(citaSeleccionada.id, payload);
+                message.success("Cita actualizada");
+                setIsEditOpen(false);
+                setCitaSeleccionada(null);
+                void queryClient.invalidateQueries({ queryKey: ["citas"] });
+              } catch (e: any) {
+                message.error(e?.message || "No se pudo actualizar");
+              }
+            }}
+          >
+            <Form.Item name="title" label="Título">
+              <AutoComplete
+                placeholder="Escribe o selecciona el motivo de la cita"
+                allowClear
+                options={TITULOS_CITA.map((t) => ({ label: t, value: t }))}
+                filterOption={(inputValue, option) =>
+                  (option?.value as string).toLowerCase().includes(inputValue.toLowerCase())
+                }
+              />
+            </Form.Item>
+            <Form.Item name="status" label="Estado">
+              <Select
+                options={[
+                  { label: "Programada", value: "scheduled" },
+                  { label: "Completada", value: "completed" },
+                  { label: "Cancelada", value: "cancelled" },
+                ]}
+              />
+            </Form.Item>
+            <Typography.Text type="secondary">
+              Doctor actual: {citaSeleccionada?.provider || "-"}
+            </Typography.Text>
+            <Form.Item label="Especialidad (opcional)">
+              <Select
+                placeholder="Selecciona especialidad"
+                allowClear
+                value={editEspecialidad}
+                options={ESPECIALIDADES_VALIDAS.map((e) => ({ label: e, value: e }))}
+                onChange={(val) => {
+                  setEditEspecialidad(val);
+                  setEditMedicoId(undefined);
+                }}
+              />
+            </Form.Item>
+            <Form.Item label="Doctor (opcional)">
+              <Select
+                placeholder={editEspecialidad ? "Selecciona doctor" : "Primero elige especialidad"}
+                disabled={!editEspecialidad}
+                value={editMedicoId}
+                onChange={(val) => setEditMedicoId(val)}
+                loading={!!editEspecialidad && !editMedicosResp}
+                options={(editMedicosResp?.data || []).map((m) => ({ value: m._id, label: m.nombre_completo }))}
+              />
+            </Form.Item>
+            <Form.Item name="description" label="Observación">
+              <Input.TextArea rows={3} placeholder="Notas u observaciones" />
+            </Form.Item>
+            <Form.Item name="fecha" label="Fecha">
+              <DatePicker style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item name="hora" label="Hora">
+              <TimePicker use12Hours format="hh:mm a" style={{ width: "100%" }} />
+            </Form.Item>
+          </Form>
+        </ConfigProvider>
       </Modal>
     </Space>
   );
