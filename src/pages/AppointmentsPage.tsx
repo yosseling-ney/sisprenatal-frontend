@@ -12,6 +12,7 @@ import {
   Skeleton,
   message,
   Modal,
+  Popconfirm,
   Form,
   Input,
   DatePicker,
@@ -596,53 +597,36 @@ const AppointmentsPage = () => {
                 Editar
               </Button>
               {citaSeleccionada.status === "scheduled" && (
-                <Button
-                  danger
-                  onClick={async () => {
-                    Modal.confirm({
-                      title: "Cancelar cita",
-                      content: "La cita se marcará como cancelada y se moverá a históricas.",
-                      okText: "Cancelar cita",
-                      okButtonProps: { danger: true },
-                      cancelText: "Volver",
-                      onOk: async () => {
-                        try {
-                          await actualizarCita(citaSeleccionada.id, {
-                            status: "cancelled",
-                            if_unmodified_since: citaSeleccionada.updated_at,
-                          } as any);
-                          message.success("Cita cancelada");
-                          const removedId = citaSeleccionada.id;
-                          // Limpieza optimista de todas las caches 'citas'
-                          const caches = queryClient.getQueriesData<CitasList>({
-                            predicate: (q: any) => Array.isArray(q.queryKey) && q.queryKey[0] === "citas",
-                          });
-                          caches.forEach(([key, data]) => {
-                            if (!data) return;
-                            const before = data.items.length;
-                            const items = data.items.filter((it) => it.id !== removedId);
-                            if (items.length !== before) {
-                              queryClient.setQueryData(key, { ...data, items, total: Math.max((data.total || 0) - (before - items.length), 0) });
-                            }
-                          });
-                          setIsDetailOpen(false);
-                          setCitaSeleccionada(null);
-                          await queryClient.invalidateQueries({
-                            predicate: (q: any) => Array.isArray(q.queryKey) && q.queryKey[0] === "citas",
-                          });
-                          await queryClient.refetchQueries({
-                            predicate: (q: any) => Array.isArray(q.queryKey) && q.queryKey[0] === "citas",
-                          });
-                        } catch (e: any) {
-                          const msg = e?.message || "No se pudo cancelar la cita";
-                          message.error(msg);
-                        }
-                      },
-                    });
+                <Popconfirm
+                  title="Cancelar cita"
+                  description="La cita se marcará como cancelada y se moverá a históricas."
+                  okText="Cancelar cita"
+                  cancelText="Volver"
+                  okButtonProps={{ danger: true }}
+                  onConfirm={async () => {
+                    try {
+                      await actualizarCita(citaSeleccionada.id, {
+                        status: "cancelled",
+                        if_unmodified_since: citaSeleccionada.updated_at,
+                      } as any);
+                      message.success("Cita cancelada");
+                      await queryClient.invalidateQueries({ queryKey: ["citas"] });
+                      await queryClient.refetchQueries({ queryKey: ["citas"] });
+                      setIsDetailOpen(false);
+                      setCitaSeleccionada(null);
+                    } catch (e: any) {
+                      const msg = e?.message || "No se pudo cancelar la cita";
+                      if (/conflicto/i.test(msg)) {
+                        await queryClient.invalidateQueries({ queryKey: ["citas"] });
+                        message.warning("La cita cambió en el servidor. Se recargó la agenda.");
+                      } else {
+                        message.error(msg);
+                      }
+                    }
                   }}
                 >
-                  Cancelar
-                </Button>
+                  <Button danger>Cancelar</Button>
+                </Popconfirm>
               )}
             </Space>
           </Space>
