@@ -93,6 +93,48 @@ export const listarProximasCitas = async (dias = 7, limit = 200): Promise<CitasL
   }
 };
 
+export const listarCitasHistoricas = async (
+  desde?: string,
+  hasta?: string,
+  limit = 200
+): Promise<CitasList> => {
+  try {
+    const params: any = { limit };
+    if (desde) params.desde = desde; // YYYY-MM-DD (interpretado en backend como local)
+    if (hasta) params.hasta = hasta;
+    const { data } = await http.get<ApiResponse<{ items: CitaApi[]; total: number }>>(
+      `${ROUTE}/historicas`,
+      { params }
+    );
+    const payload = handleResponse(data);
+    return { items: (payload.items ?? []).map(normalize), total: payload.total ?? 0 };
+  } catch (err: any) {
+    const msg = err?.response?.data?.error || err?.message || "No se pudo obtener las citas históricas";
+    throw new Error(msg);
+  }
+};
+
+export const listarCitasActivas = async (
+  desde?: string,
+  hasta?: string,
+  limit = 200
+): Promise<CitasList> => {
+  try {
+    const params: any = { limit };
+    if (desde) params.desde = desde; // YYYY-MM-DD
+    if (hasta) params.hasta = hasta;
+    const { data } = await http.get<ApiResponse<{ items: CitaApi[]; total: number }>>(
+      `${ROUTE}/activas`,
+      { params }
+    );
+    const payload = handleResponse(data);
+    return { items: (payload.items ?? []).map(normalize), total: payload.total ?? 0 };
+  } catch (err: any) {
+    const msg = err?.response?.data?.error || err?.message || "No se pudo obtener las citas activas";
+    throw new Error(msg);
+  }
+};
+
 export interface CrearCitaPayload {
   paciente_id: string;
   start_at: string; // ISO8601
@@ -101,6 +143,7 @@ export interface CrearCitaPayload {
   description?: string | null;
   provider?: string | null;
   location?: string | null;
+  status?: "scheduled" | "completed" | "cancelled";
   attendees?: Array<{ email: string; displayName?: string }>;
   reminders?: Record<string, unknown>;
 }
@@ -130,7 +173,11 @@ export interface ActualizarCitaPayload {
 export const actualizarCita = async (cita_id: string, payload: ActualizarCitaPayload) => {
   try {
     const { data } = await http.patch<ApiResponse<{ updated: number }>>(`${ROUTE}/${cita_id}`, payload);
-    return handleResponse(data);
+    const res = handleResponse(data);
+    if (!res || typeof (res as any).updated === "undefined" || (res as any).updated === 0) {
+      throw new Error("No se actualizó (posible desincronización)");
+    }
+    return res;
   } catch (err: any) {
     const msg = err?.response?.data?.error || err?.message || "No se pudo actualizar la cita";
     throw new Error(msg);

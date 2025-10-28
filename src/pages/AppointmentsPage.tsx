@@ -28,12 +28,15 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useCitasHoy } from "../hooks/queries/citas/useCitasHoy";
 import { useCitasProximas } from "../hooks/queries/citas/useCitasProximas";
+import { useCitasHistoricas } from "../hooks/queries/citas/useCitasHistoricas";
+import { useCitasActivas } from "../hooks/queries/citas/useCitasActivas";
 import { ESPECIALIDADES_VALIDAS, listMedicos } from "../services/medicos.service";
 import {
   buscarPacientePorIdentificacion,
   TipoIdentificacion,
 } from "../services/paciente.service";
-import { crearCita, CitaItem, actualizarCita, eliminarCita } from "../services/citas.service";
+import { crearCita, CitaItem, actualizarCita } from "../services/citas.service";
+import type { CitasList } from "../services/citas.service";
 import { usePaciente } from "../hooks/queries/usePaciente";
 
 const AppointmentsPage = () => {
@@ -77,6 +80,7 @@ const AppointmentsPage = () => {
   const [numeroIdent, setNumeroIdent] = React.useState<string>("");
   const [especialidad, setEspecialidad] = React.useState<string | undefined>(undefined);
   const [medicoId, setMedicoId] = React.useState<string | undefined>(undefined);
+  const [fechaSeleccionada, setFechaSeleccionada] = React.useState<dayjs.Dayjs | null>(null);
   // búsqueda local de citas
   const [search, setSearch] = React.useState("");
   // detalle / edición
@@ -86,6 +90,7 @@ const AppointmentsPage = () => {
   const [editForm] = Form.useForm();
   const [editEspecialidad, setEditEspecialidad] = React.useState<string | undefined>(undefined);
   const [editMedicoId, setEditMedicoId] = React.useState<string | undefined>(undefined);
+  const [editFechaSeleccionada, setEditFechaSeleccionada] = React.useState<dayjs.Dayjs | null>(null);
 
   // ---- Médicos por especialidad
   const { data: medicosResp } = useQuery({
@@ -102,6 +107,92 @@ const AppointmentsPage = () => {
   // ---- Citas (independientes)
   const { data: hoy, isLoading: loadingHoy, isError: errorHoy } = useCitasHoy(100);
   const { data: proximas, isLoading: loadingProximas, isError: errorProximas } = useCitasProximas(7, 200);
+  const { data: historicas, isLoading: loadingHistoricas, isError: errorHistoricas } = useCitasHistoricas(undefined, undefined, 200);
+  // Citas activas del día escogido (para bloquear solapes); filtraremos por doctor en cliente
+  const ymd = fechaSeleccionada ? fechaSeleccionada.format("YYYY-MM-DD") : undefined;
+  const { data: activasDelDia } = useCitasActivas(ymd, ymd, 500, { enabled: !!ymd });
+
+  const getSelectedProviderName = React.useCallback(() => {
+    const medicos = medicosResp?.data || [];
+    return medicos.find((m) => m._id === medicoId)?.nombre_completo || undefined;
+  }, [medicosResp, medicoId]);
+
+  const computeDisabledMinutes = React.useCallback(
+    (hour: number): number[] => {
+      const provider = getSelectedProviderName();
+      if (!provider || !fechaSeleccionada) return [];
+      const citas = activasDelDia?.items || [];
+      // Considerar slots de 30 min
+      const slots = [0, 30];
+      const disabled: number[] = [];
+      for (const m of slots) {
+        const slotStart = fechaSeleccionada.hour(hour).minute(m).second(0).millisecond(0);
+        const slotEnd = slotStart.add(30, "minute");
+        const overlaps = citas.some((c) => {
+          if (c.provider !== provider) return false;
+          const cStart = dayjs(c.start_at);
+          const cEnd = c.end_at ? dayjs(c.end_at) : dayjs(c.start_at).add(30, "minute");
+          return cStart.isBefore(slotEnd) && cEnd.isAfter(slotStart);
+        });
+        if (overlaps) disabled.push(m);
+      }
+      return disabled;
+    },
+    [activasDelDia, fechaSeleccionada, getSelectedProviderName]
+  );
+
+  const disabledTimeCreate = React.useCallback(
+    () => ({
+      disabledHours: () => [],
+      disabledMinutes: (hour: number) => computeDisabledMinutes(hour),
+    }),
+    [computeDisabledMinutes]
+  );
+
+  // ---- Paciente para modal de detalle
+  const detallePacId = citaSeleccionada?.paciente_id || "";
+  const { data: detallePaciente } = usePaciente(detallePacId, { enabled: !!detallePacId && isDetailOpen });
+
+  // Activas del día para edición (excluyendo la propia cita luego al calcular)
+  const editYmd = editFechaSeleccionada ? editFechaSeleccionada.format("YYYY-MM-DD") : undefined;
+  const { data: activasEditDia } = useCitasActivas(editYmd, editYmd, 500, { enabled: !!editYmd });
+
+  const getEditProviderName = React.useCallback(() => {
+    const medicos = editMedicosResp?.data || [];
+    return medicos.find((m) => m._id === editMedicoId)?.nombre_completo || citaSeleccionada?.provider || undefined;
+  }, [editMedicosResp, editMedicoId, citaSeleccionada]);
+
+  const computeDisabledMinutesEdit = React.useCallback(
+    (hour: number): number[] => {
+      const provider = getEditProviderName();
+      if (!provider || !editFechaSeleccionada) return [];
+      const citas = activasEditDia?.items || [];
+      const slots = [0, 30];
+      const disabled: number[] = [];
+      for (const m of slots) {
+        const slotStart = editFechaSeleccionada.hour(hour).minute(m).second(0).millisecond(0);
+        const slotEnd = slotStart.add(30, "minute");
+        const overlaps = citas.some((c) => {
+          if (c.id === citaSeleccionada?.id) return false; // excluir la misma
+          if (c.provider !== provider) return false;
+          const cStart = dayjs(c.start_at);
+          const cEnd = c.end_at ? dayjs(c.end_at) : dayjs(c.start_at).add(30, "minute");
+          return cStart.isBefore(slotEnd) && cEnd.isAfter(slotStart);
+        });
+        if (overlaps) disabled.push(m);
+      }
+      return disabled;
+    },
+    [activasEditDia, editFechaSeleccionada, getEditProviderName, citaSeleccionada]
+  );
+
+  const disabledTimeEdit = React.useCallback(
+    () => ({
+      disabledHours: () => [],
+      disabledMinutes: (hour: number) => computeDisabledMinutesEdit(hour),
+    }),
+    [computeDisabledMinutesEdit]
+  );
 
   // (Google Calendar eliminado)
 
@@ -235,6 +326,34 @@ const AppointmentsPage = () => {
         </Col>
       </Row>
 
+      <Row gutter={[24, 24]}>
+        <Col xs={24}>
+          <Card title="Citas completadas / históricas" extra={<Tag color="default">{historicas?.total ?? 0}</Tag>}>
+            {loadingHistoricas ? (
+              <Skeleton active paragraph={{ rows: 3 }} />
+            ) : errorHistoricas ? (
+              <Empty description="No se pudo cargar" />
+            ) : historicas && historicas.items.length > 0 ? (
+              <Space direction="vertical" style={{ width: "100%" }}>
+                {historicas.items
+                  .filter((c) => {
+                    const q = search.trim().toLowerCase();
+                    if (!q) return true;
+                    const title = c.title || "";
+                    const provider = c.provider || "";
+                    return title.toLowerCase().includes(q) || provider.toLowerCase().includes(q);
+                  })
+                  .map((cita) => (
+                    <AppointmentItemCard key={cita.id} cita={cita} showDate />
+                  ))}
+              </Space>
+            ) : (
+              <Empty description="No hay citas históricas" />
+            )}
+          </Card>
+        </Col>
+      </Row>
+
       {/* (Sin sección de Google Calendar) */}
 
       {/* Modal Nueva Cita */}
@@ -274,6 +393,10 @@ const AppointmentsPage = () => {
               // mapear doctor seleccionado a provider (texto)
               const medicos = medicosResp?.data || [];
               const providerName = medicos.find((m) => m._id === medicoId)?.nombre_completo || null;
+              if (!providerName) {
+                message.warning("Selecciona el doctor");
+                return;
+              }
 
               const created = await crearCita({
                 paciente_id: pacienteEncontrado.id,
@@ -281,17 +404,8 @@ const AppointmentsPage = () => {
                 title: values.title || null,
                 description: values.description || null,
                 provider: providerName,
+                status: (values.status as any) || undefined,
               });
-
-              // actualizar estado si es distinto al default
-              const estadoSeleccionado = values.status as
-                | "scheduled"
-                | "completed"
-                | "cancelled"
-                | undefined;
-              if (created?.id && estadoSeleccionado && estadoSeleccionado !== "scheduled") {
-                await actualizarCita(created.id, { status: estadoSeleccionado });
-              }
 
               message.success("Cita creada");
               setIsModalOpen(false);
@@ -299,7 +413,13 @@ const AppointmentsPage = () => {
               setPacienteEncontrado(null);
               void queryClient.invalidateQueries({ queryKey: ["citas"] });
             } catch (e: any) {
-              message.error(e?.message || "No se pudo crear la cita");
+              const msg = e?.message || "No se pudo crear la cita";
+              if (/conflicto/i.test(msg)) {
+                message.warning(`${msg}. Se actualizaron los horarios.`);
+                void queryClient.invalidateQueries({ queryKey: ["citas"] });
+              } else {
+                message.error(msg);
+              }
             }
           }}
         >
@@ -400,10 +520,10 @@ const AppointmentsPage = () => {
             <Input.TextArea rows={3} placeholder="Notas u observaciones" />
           </Form.Item>
           <Form.Item name="fecha" label="Fecha" rules={[{ required: true, message: "Selecciona la fecha" }]}>
-            <DatePicker style={{ width: "100%" }} />
+            <DatePicker style={{ width: "100%" }} onChange={(d) => setFechaSeleccionada(d)} />
           </Form.Item>
           <Form.Item name="hora" label="Hora" rules={[{ required: true, message: "Selecciona la hora" }]}>
-            <TimePicker use12Hours format="hh:mm a" style={{ width: "100%" }} />
+            <TimePicker use12Hours format="hh:mm a" minuteStep={30} style={{ width: "100%" }} disabledTime={disabledTimeCreate} />
           </Form.Item>
         </Form>
         </ConfigProvider>
@@ -422,6 +542,17 @@ const AppointmentsPage = () => {
             <Typography.Title level={5} style={{ margin: 0 }}>
               {renderTitulo(citaSeleccionada.title, citaSeleccionada.provider)}
             </Typography.Title>
+            <Space direction="vertical" size={0}>
+              <Typography.Text>
+                Paciente: {detallePaciente ? `${detallePaciente.paciente.nombre} ${detallePaciente.paciente.apellido}`.trim() : "-"}
+              </Typography.Text>
+              <Typography.Text>
+                Identificación: {detallePaciente ? `${detallePaciente.paciente.tipo_identificacion} ${detallePaciente.paciente.numero_identificacion}` : "-"}
+              </Typography.Text>
+              <Typography.Text>
+                Doctor: {citaSeleccionada.provider || "-"}
+              </Typography.Text>
+            </Space>
             <Typography.Text>
               Fecha: {dayjs(citaSeleccionada.start_at).format("DD/MM/YYYY")} — Hora: {dayjs(citaSeleccionada.start_at).format("hh:mm a")}
             </Typography.Text>
@@ -432,6 +563,18 @@ const AppointmentsPage = () => {
               </Tag>
             </Space>
             <Typography.Text>Descripción: {citaSeleccionada.description || "-"}</Typography.Text>
+            <Space direction="vertical" size={0}>
+              {citaSeleccionada.created_at ? (
+                <Typography.Text type="secondary">
+                  Creada: {dayjs(citaSeleccionada.created_at).format("DD/MM/YYYY HH:mm")}
+                </Typography.Text>
+              ) : null}
+              {citaSeleccionada.updated_at ? (
+                <Typography.Text type="secondary">
+                  Actualizada: {dayjs(citaSeleccionada.updated_at).format("DD/MM/YYYY HH:mm")}
+                </Typography.Text>
+              ) : null}
+            </Space>
             <Space>
               <Button
                 onClick={() => {
@@ -447,35 +590,60 @@ const AppointmentsPage = () => {
                   });
                   setEditEspecialidad(undefined);
                   setEditMedicoId(undefined);
+                  setEditFechaSeleccionada(dayjs(citaSeleccionada.start_at));
                 }}
               >
                 Editar
               </Button>
-              <Button
-                danger
-                onClick={async () => {
-                  Modal.confirm({
-                    title: "Eliminar cita",
-                    content: "Esta acción no se puede deshacer.",
-                    okText: "Eliminar",
-                    okButtonProps: { danger: true },
-                    cancelText: "Cancelar",
-                    onOk: async () => {
-                      try {
-                        await eliminarCita(citaSeleccionada.id);
-                        message.success("Cita eliminada");
-                        setIsDetailOpen(false);
-                        setCitaSeleccionada(null);
-                        void queryClient.invalidateQueries({ queryKey: ["citas"] });
-                      } catch (e: any) {
-                        message.error(e?.message || "No se pudo eliminar");
-                      }
-                    },
-                  });
-                }}
-              >
-                Eliminar
-              </Button>
+              {citaSeleccionada.status === "scheduled" && (
+                <Button
+                  danger
+                  onClick={async () => {
+                    Modal.confirm({
+                      title: "Cancelar cita",
+                      content: "La cita se marcará como cancelada y se moverá a históricas.",
+                      okText: "Cancelar cita",
+                      okButtonProps: { danger: true },
+                      cancelText: "Volver",
+                      onOk: async () => {
+                        try {
+                          await actualizarCita(citaSeleccionada.id, {
+                            status: "cancelled",
+                            if_unmodified_since: citaSeleccionada.updated_at,
+                          } as any);
+                          message.success("Cita cancelada");
+                          const removedId = citaSeleccionada.id;
+                          // Limpieza optimista de todas las caches 'citas'
+                          const caches = queryClient.getQueriesData<CitasList>({
+                            predicate: (q: any) => Array.isArray(q.queryKey) && q.queryKey[0] === "citas",
+                          });
+                          caches.forEach(([key, data]) => {
+                            if (!data) return;
+                            const before = data.items.length;
+                            const items = data.items.filter((it) => it.id !== removedId);
+                            if (items.length !== before) {
+                              queryClient.setQueryData(key, { ...data, items, total: Math.max((data.total || 0) - (before - items.length), 0) });
+                            }
+                          });
+                          setIsDetailOpen(false);
+                          setCitaSeleccionada(null);
+                          await queryClient.invalidateQueries({
+                            predicate: (q: any) => Array.isArray(q.queryKey) && q.queryKey[0] === "citas",
+                          });
+                          await queryClient.refetchQueries({
+                            predicate: (q: any) => Array.isArray(q.queryKey) && q.queryKey[0] === "citas",
+                          });
+                        } catch (e: any) {
+                          const msg = e?.message || "No se pudo cancelar la cita";
+                          message.error(msg);
+                        }
+                      },
+                    });
+                  }}
+                >
+                  Cancelar
+                </Button>
+              )}
             </Space>
           </Space>
         ) : null}
@@ -518,13 +686,24 @@ const AppointmentsPage = () => {
                 const providerName = medicos.find((m) => m._id === editMedicoId)?.nombre_completo;
                 if (providerName) payload.provider = providerName;
 
+                // bloqueo optimista: solo guarda si no cambió en servidor
+                if (citaSeleccionada.updated_at) {
+                  payload.if_unmodified_since = citaSeleccionada.updated_at;
+                }
+
                 await actualizarCita(citaSeleccionada.id, payload);
                 message.success("Cita actualizada");
                 setIsEditOpen(false);
                 setCitaSeleccionada(null);
                 void queryClient.invalidateQueries({ queryKey: ["citas"] });
               } catch (e: any) {
-                message.error(e?.message || "No se pudo actualizar");
+                const msg = e?.message || "No se pudo actualizar";
+                if (/conflicto/i.test(msg)) {
+                  message.warning(`${msg}. Se recargó la agenda; revisa cambios y vuelve a intentar.`);
+                  void queryClient.invalidateQueries({ queryKey: ["citas"] });
+                } else {
+                  message.error(msg);
+                }
               }
             }}
           >
@@ -576,10 +755,10 @@ const AppointmentsPage = () => {
               <Input.TextArea rows={3} placeholder="Notas u observaciones" />
             </Form.Item>
             <Form.Item name="fecha" label="Fecha">
-              <DatePicker style={{ width: "100%" }} />
+              <DatePicker style={{ width: "100%" }} onChange={(d) => setEditFechaSeleccionada(d)} />
             </Form.Item>
             <Form.Item name="hora" label="Hora">
-              <TimePicker use12Hours format="hh:mm a" style={{ width: "100%" }} />
+              <TimePicker use12Hours format="hh:mm a" minuteStep={30} style={{ width: "100%" }} disabledTime={disabledTimeEdit} />
             </Form.Item>
           </Form>
         </ConfigProvider>
